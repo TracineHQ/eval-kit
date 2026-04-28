@@ -1,0 +1,21 @@
+{
+  "name": "eval-kit",
+  "version": "0.0.1",
+  "description": "Statistical confidence for LLM evaluation. Welch's t-test, Glass's delta, power analysis, and guided eval workflows.",
+  "author": {
+    "name": "Anthony Ledesma",
+    "url": "https://github.com/TracineHQ"
+  },
+  "homepage": "https://github.com/TracineHQ/eval-kit",
+  "repository": "https://github.com/TracineHQ/eval-kit",
+  "license": "Apache-2.0",
+  "keywords": [
+    "llm",
+    "evaluation",
+    "statistics",
+    "testing",
+    "eval",
+    "welch",
+    "power-analysis"
+  ]
+}

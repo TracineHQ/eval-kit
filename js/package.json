@@ -1,0 +1,38 @@
+{
+  "name": "eval-kit",
+  "version": "0.0.1",
+  "description": "Statistical confidence for LLM evaluation -- JS binding. Welch's t-test, Glass's delta, power analysis. Zero dependencies.",
+  "type": "module",
+  "main": "lib/stats.mjs",
+  "exports": {
+    ".": "./lib/stats.mjs"
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "llm",
+    "evaluation",
+    "statistics",
+    "testing",
+    "welch",
+    "t-test",
+    "power-analysis"
+  ],
+  "author": "Anthony Ledesma",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/TracineHQ/eval-kit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TracineHQ/eval-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TracineHQ/eval-kit/issues"
+  }
+}

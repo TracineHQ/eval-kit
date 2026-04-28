@@ -1,2 +1,27 @@
 node_modules/
 .DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+
+# Private working docs (do not commit)
+docs/plan/
+docs/research/
+.claude/
+.outputs/
+.coverage
+.hypothesis/
+.mypy_cache/
+.ruff_cache/
+.semgrep/
+.semgrepignore
+.uv-cache/
+.ai-toolkit/
+.cache/
+.worktrees/
