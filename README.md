@@ -1,5 +1,8 @@
 # eval-kit
 
+[![CI](https://github.com/TracineHQ/eval-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/TracineHQ/eval-kit/actions/workflows/ci.yml)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+
 Statistical confidence for LLM evaluation. Welch's t-test, Glass's delta, power
 analysis. Two language bindings, cross-validated against scipy.
 
@@ -14,7 +17,7 @@ A small library for the math you need when comparing LLM outputs:
 Two bindings, same API surface:
 
 - **JS** (`js/lib/stats.mjs`) -- Node.js built-ins only, zero dependencies, ~260 lines with JSDoc.
-- **Python** (`eval-kit` on PyPI, source in `python/src/eval_kit/`) -- scipy-backed, exact.
+- **Python** (`python/src/eval_kit/`) -- scipy-backed, exact. Install from source.
 
 Cross-validated against scipy on every commit (`tests/cross-validation/`).
 
@@ -26,10 +29,11 @@ Cross-validated against scipy on every commit (`tests/cross-validation/`).
 curl -O https://raw.githubusercontent.com/TracineHQ/eval-kit/main/js/lib/stats.mjs
 ```
 
-**Python:**
+**Python (install from source):**
 
 ```bash
-pip install eval-kit
+git clone https://github.com/TracineHQ/eval-kit
+cd eval-kit/python && pip install -e .
 ```
 
 ## Quick start
@@ -123,11 +127,7 @@ cd python && pip install -e ".[dev]" && pytest
 cd python && pytest ../tests/cross-validation/ -v
 ```
 
-All three suites pass on the main branch.
-
-## Adjacent work
-
-I am building this into a Claude Code plugin for guided eval workflows -- a runner, a three-layer assertion pipeline (schema, property invariants, behavioral directional pairs), baseline comparison with verdicts, and a skill that walks you through the setup. Same repo, more modules. Watch the repo if that is interesting to you.
+All three suites are wired into CI on every push and pull request to main.
 
 ## Contributing
 
