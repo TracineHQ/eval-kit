@@ -1,0 +1,34 @@
+{
+  "command": "compare",
+  "baseline": [
+    412,
+    398,
+    425,
+    407,
+    419,
+    402,
+    415,
+    410
+  ],
+  "variant": [
+    388,
+    379,
+    395,
+    384,
+    391,
+    381,
+    390,
+    386
+  ],
+  "target": 10,
+  "flags": [
+    "--lower-is-better"
+  ],
+  "expect": {
+    "verdict": "improved",
+    "lowerIsBetter": true
+  },
+  "without_flags_expect": {
+    "verdict": "regressed"
+  }
+}

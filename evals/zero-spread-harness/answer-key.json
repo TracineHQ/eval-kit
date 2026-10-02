@@ -1,0 +1,23 @@
+{
+  "command": "compare",
+  "baseline": [
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8
+  ],
+  "variant": [
+    0.84,
+    0.79,
+    0.86,
+    0.83,
+    0.81
+  ],
+  "target": 0.03,
+  "expect": {
+    "verdict": "cant_tell",
+    "reason": "underpowered",
+    "constantArm": "baseline"
+  }
+}

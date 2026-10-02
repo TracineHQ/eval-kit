@@ -1,0 +1,22 @@
+{
+  "name": "eval-kit",
+  "version": "0.1.0",
+  "description": "Did the eval get better, or is that noise? A Claude Code skill and CLI that sizes the runs before you test, gates CI on the verdict, and says \"can't tell yet\" when the data can't support a call. Zero-dependency JS and scipy-backed Python, cross-validated in CI. Beta.",
+  "author": {
+    "name": "Anthony Ledesma",
+    "url": "https://github.com/TracineHQ"
+  },
+  "homepage": "https://github.com/TracineHQ/eval-kit",
+  "repository": "https://github.com/TracineHQ/eval-kit",
+  "license": "Apache-2.0",
+  "keywords": [
+    "llm",
+    "evaluation",
+    "statistics",
+    "testing",
+    "eval",
+    "welch",
+    "power-analysis",
+    "claude-code-plugin"
+  ]
+}

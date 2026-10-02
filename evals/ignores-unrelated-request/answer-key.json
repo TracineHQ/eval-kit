@@ -1,0 +1,13 @@
+{
+  "negative": true,
+  "phrases": {
+    "answer": {
+      "accept": [
+        "Rename getUser to fetchUser"
+      ],
+      "reject": [
+        "Rename the user getter"
+      ]
+    }
+  }
+}

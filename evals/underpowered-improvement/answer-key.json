@@ -1,0 +1,38 @@
+{
+  "command": "compare",
+  "baseline": [
+    80.1,
+    82.4,
+    79.0,
+    83.5
+  ],
+  "variant": [
+    83.9,
+    81.2,
+    86.0,
+    84.7
+  ],
+  "target": 3,
+  "expect": {
+    "verdict": "cant_tell",
+    "reason": "underpowered",
+    "needed": 16
+  },
+  "phrases": {
+    "runs-needed": {
+      "accept": [
+        "Resolving it takes 16 runs per arm at the spread seen so far; you have 4.",
+        "You need about 16 runs of each version.",
+        "Plan on sixteen runs per prompt.",
+        "n = 16 in each group"
+      ],
+      "reject": [
+        "Collect 16 more runs per arm.",
+        "You need 9 runs per arm.",
+        "You need 15 runs per arm.",
+        "There is a 0.16 correlation across runs.",
+        "It rose from 79 to 83 across 4 runs."
+      ]
+    }
+  }
+}

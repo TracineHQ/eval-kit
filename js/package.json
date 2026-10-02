@@ -1,0 +1,42 @@
+{
+  "name": "eval-kit",
+  "version": "0.1.0",
+  "description": "Did the eval get better, or is that noise? Welch's and paired t-tests, exact power analysis, and a verdict CLI that says 'can't tell yet' when the data can't support a call. Zero dependencies.",
+  "type": "module",
+  "main": "lib/stats.mjs",
+  "exports": {
+    ".": "./lib/stats.mjs"
+  },
+  "bin": {
+    "eval-kit": "cli.mjs"
+  },
+  "files": [
+    "lib",
+    "cli.mjs"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "llm",
+    "evaluation",
+    "statistics",
+    "testing",
+    "welch",
+    "t-test",
+    "power-analysis"
+  ],
+  "author": "Anthony Ledesma",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/TracineHQ/eval-kit",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TracineHQ/eval-kit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TracineHQ/eval-kit/issues"
+  }
+}
