@@ -6,6 +6,24 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- `power` with `--baseline` and `--variant` reads the design the way `compare` does. Two
+  arrays are independent runs, sized from the pooled std of both arms,
+  `sqrt((sd_baseline^2 + sd_variant^2) / 2)`, the common std at which the per-arm math gives
+  the standard error the two spreads give. Objects keyed by item id, or arrays with `--paired`,
+  are paired items, sized from the std of their differences. 0.1.0 paired any two files by
+  index, answered in items, and refused arrays of unequal length with a `--paired` error
+  nobody had asked for.
+- `compare` with no spread to test against (both arms constant, or every paired difference
+  identical) printed a zero-width CI, `p < 0.001`, and an effect size of 99.00. The text output
+  now prints them as undefined. The verdict is still `cant_tell`, reason `zero_spread`, and
+  `--gate` still exits 3. `--json` keeps its shape and its placeholders: `ciLo` = `ciHi` =
+  `shift`, `p` 0 (1 when the arms match), `effect` 99 (0 when the arms match).
+- `power` with no spread to size from (`--std 0`, `--sd-diff 0`, or a constant pilot) printed
+  "2 runs per arm" and nothing else. It now names what had no spread and warns that 2 is the
+  minimum, not a plan. A two-arm pilot with one constant arm gets `compare`'s constant-arm
+  warning. `--json` is unchanged; `spread: 0` is the signal there.
+
 ## [0.1.0] - 2026-10-02
 
 First tagged release. 0.0.x was never tagged; the Changed, Removed, and Fixed

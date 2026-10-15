@@ -132,8 +132,19 @@ Resolving it takes 16 runs per arm at the spread seen so far; you have 4.
   Welch's test only needs spread in one arm. `constantArm` names it and the text output warns:
   a constant arm is a ceiling or a broken harness, and only you can tell which. Both arms
   constant, or every paired difference identical, is `cant_tell` (reason `zero_spread`).
+- **Zero spread** leaves nothing to estimate uncertainty from, so the text output prints the
+  95% CI, p, and effect size as `undefined`. `--json` keeps its shape and carries placeholders:
+  `ciLo` and `ciHi` equal `shift`, `p` is 0 (1 when the arms match), `effect` is 99 (0 when the
+  arms match), and `needed` is null. Branch on `reason`, not on those numbers.
 - **`power`** sizes the comparison first: `node js/cli.mjs power --baseline pilot.json --target 3`
-  gives the n with 80% power to detect a target-sized shift.
+  gives the n with 80% power to detect a target-sized shift, from the baseline's std. Add
+  `--variant` and it reads the design the way `compare` does. Two arrays are independent runs,
+  sized from the pooled std of both arms, `sqrt((sd_baseline^2 + sd_variant^2) / 2)`: at equal n
+  per arm that gives the standard error the two spreads give, so a noisier variant raises the
+  count instead of being assumed away. Objects keyed by item id, or arrays with `--paired`, are
+  paired items, sized from the std of their differences. A spread of 0 (a constant pilot, or
+  `--std 0`) still prints the minimum n, 2, with a warning that it is not a plan. In `--json`,
+  `spread: 0` is the signal.
 - **"Resolving it takes N"** in a `cant_tell` is a different, larger n: at the spread seen so
   far, the 95% CI at N is under half the target on each side, so it cannot span both no change
   and the target. Every verdict at N is a call.
@@ -173,7 +184,7 @@ to 1e-9 relative (with a 1e-15 absolute floor), so small tail p-values keep thei
 ## Notable design choices
 
 - **Glass's delta, not Cohen's d.** Cohen's d divides by a pooled standard deviation, a well-defined yardstick only when both groups share one spread. Welch's test is for when they may not. Glass's delta divides by the baseline's standard deviation alone, so the effect is measured in units of the thing you compare against. The trade: it is noisier at small n and not symmetric in the two groups.
-- **`requiredN` is exact.** The smallest n per arm whose power under the noncentral t reaches 0.80 (alpha 0.05 two-tailed), matching statsmodels and Cohen's tables (d = 0.5 needs 64). The textbook z formula runs one to two short at small n. Past 10^8 runs per arm it returns the z value, which is within 1e-5 of exact there. It assumes the variant's spread matches the baseline's, so it underestimates when the variant is noisier.
+- **`requiredN` is exact.** The smallest n per arm whose power under the noncentral t reaches 0.80 (alpha 0.05 two-tailed), matching statsmodels and Cohen's tables (d = 0.5 needs 64). The textbook z formula runs one to two short at small n. Past 10^8 runs per arm it returns the z value, which is within 1e-5 of exact there. It assumes the variant's spread matches the baseline's, so it underestimates when the variant is noisier. That is why the CLI's two-arm `power` pilot sizes from the pooled std of both arms.
 - **`requiredNPaired` sizes items, not runs.** Each item already contributes both arms, so there is no factor of 2. The spread that matters is that of the per-item differences, which is small when items are correlated.
 - **Sentinel over Infinity for effect sizes.** `glassD = 99` (or `dz = 99`) when the relevant std is 0, so threshold checks still fire and JSON stays intact. In that branch `t` is still `Infinity` (serializes to `null`); check `se === 0` first. At n = 1, `std`, `se` and `ciMargin` are 0 by construction (no spread estimate), not a claim of precision; the t-tests refuse n < 2 for this reason.
 - **Full t-distribution without dependencies.** The JS p-value is a regularized incomplete beta function (Lanczos log-gamma, continued fraction); `tCritical` inverts it by bisection, and power analysis uses a noncentral t (Lenth's AS 243). No lookup tables, no normal approximation.

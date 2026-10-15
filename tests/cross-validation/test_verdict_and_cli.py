@@ -12,6 +12,7 @@ Run (from repo root):
 from __future__ import annotations
 
 import json
+import math
 import random
 import statistics
 import subprocess
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from scipy import stats as sp
 
 from eval_kit.stats import paired_t_test, verdict
 
@@ -74,6 +76,7 @@ VERDICT_CASES = [
     ("unequal n", WELCH_BASE[:6], [83.9, 81.2, 86.0, 84.7], {"target": 3}),
     ("unequal n and variance", WELCH_BASE, [70, 60, 80, 50], {"target": 3}),
     ("identical arms", [5, 5, 5], [5, 5, 5], {"target": 1}),
+    ("both arms constant, different means", [80] * 5, [85] * 5, {"target": 3}),
     ("rounding tie", [1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 9], {"target": 2}),
 ]
 
@@ -95,6 +98,7 @@ EXPECTED = {
     "unequal n": ("cant_tell", "underpowered"),
     "unequal n and variance": ("cant_tell", "underpowered"),
     "identical arms": ("cant_tell", "zero_spread"),
+    "both arms constant, different means": ("cant_tell", "zero_spread"),
     "rounding tie": ("cant_tell", "underpowered"),
 }
 
@@ -318,8 +322,89 @@ def test_cli_reads_stdin(scores):
             "1",
         ],
         lambda s: ["power", "--std", "1", "--target", "0.5", "--json"],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", WELCH_BASE[:4]),
+            "--variant",
+            s("v.json", [83.9, 81.2, 86.0, 84.7]),
+            "--target",
+            "3",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", WELCH_BASE[:6]),
+            "--variant",
+            s("v.json", [70, 60, 80, 50]),
+            "--target",
+            "3",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", WELCH_BASE[:4]),
+            "--variant",
+            s("v.json", [83.9, 81.2, 86.0, 84.7]),
+            "--target",
+            "3",
+            "--paired",
+        ],
+        lambda s: ["power", "--sd-diff", "0", "--target", "3"],
+        lambda s: ["power", "--baseline", s("b.json", [0.8] * 5), "--target", "0.03"],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", [0.8] * 5),
+            "--variant",
+            s("v.json", [0.8] * 5),
+            "--target",
+            "0.03",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", [0.8] * 5),
+            "--variant",
+            s("v.json", [0.84, 0.79, 0.86, 0.83, 0.81]),
+            "--target",
+            "0.03",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", [0.84, 0.79, 0.86, 0.83, 0.81]),
+            "--variant",
+            s("v.json", [0.8] * 5),
+            "--target",
+            "0.03",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", {"a": 1, "b": 2}),
+            "--variant",
+            s("v.json", {"a": 2, "b": 3}),
+            "--target",
+            "1",
+        ],
     ],
-    ids=["std", "sd-diff", "baseline file", "paired pilot", "json"],
+    ids=[
+        "std",
+        "sd-diff",
+        "baseline file",
+        "paired pilot",
+        "json",
+        "two arrays are independent runs",
+        "two arrays, unequal n and spread",
+        "two arrays with --paired",
+        "zero sd-diff",
+        "constant baseline",
+        "two-arm pilot with no spread",
+        "two-arm pilot, constant baseline",
+        "two-arm pilot, constant variant",
+        "paired pilot with no spread",
+    ],
 )
 def test_cli_power_parity(scores, args_fn):
     args = args_fn(scores)
@@ -328,6 +413,42 @@ def test_cli_power_parity(scores, args_fn):
     assert js.stdout == py.stdout
     if "--json" in args:
         assert json.loads(py.stdout)["needed"] == 64
+
+
+@pytest.mark.parametrize(
+    "pilot_base,pilot_var,target",
+    [
+        (WELCH_BASE[:4], [83.9, 81.2, 86.0, 84.7], 3),
+        (WELCH_BASE[:6], [70, 60, 80, 50], 3),
+        (WELCH_BASE, [x + 1 for x in WELCH_BASE[:5]], 1),
+    ],
+    ids=["equal n", "noisier variant, unequal n", "unequal n"],
+)
+def test_cli_power_two_arm_pilot_is_the_power_boundary(scores, pilot_base, pilot_var, target):
+    """Two arrays size independent runs from sqrt((sd_b^2 + sd_v^2) / 2). At the
+    n per arm both CLIs give, a two-sample t-test with the pilot's two spreads
+    (standard error sqrt((sd_b^2 + sd_v^2) / n), df 2n - 2, as required_n
+    assumes) reaches 80% power under the noncentral t (scipy); at n - 1 it
+    does not. Checks the design choice against ground truth, not just parity."""
+    args = ["power", "--baseline", scores("b.json", pilot_base), "--variant", scores("v.json", pilot_var)]
+    js, py = run_both([*args, "--target", str(target), "--json"])
+    js_out, py_out = json.loads(js.stdout), json.loads(py.stdout)
+    assert js_out["design"] == py_out["design"] == "welch"
+    assert js_out["needed"] == py_out["needed"]
+    var_sum = statistics.variance(pilot_base) + statistics.variance(pilot_var)
+    assert py_out["spread"] == pytest.approx(math.sqrt(var_sum / 2), rel=EXACT)
+    assert js_out["spread"] == pytest.approx(py_out["spread"], rel=EXACT)
+
+    def power(n: int) -> float:
+        df = 2 * n - 2
+        nc = target / math.sqrt(var_sum / n)
+        tc = sp.t.ppf(0.975, df)
+        return sp.nct.sf(tc, df, nc) + sp.nct.sf(tc, df, -nc)
+
+    n = py_out["needed"]
+    assert n > 3
+    assert power(n) >= 0.80
+    assert power(n - 1) < 0.80
 
 
 @pytest.mark.parametrize(
@@ -394,6 +515,24 @@ def test_cli_power_parity(scores, args_fn):
         (lambda s: ["frobnicate"], None),
         (lambda s: ["power", "--target", "1"], None),
         (lambda s: ["compare", "--nope"], None),
+        (
+            lambda s: [
+                "power",
+                "--baseline",
+                s("b.json", [1, 2, 3]),
+                "--variant",
+                s("v.json", [1, 2]),
+                "--target",
+                "1",
+                "--paired",
+            ],
+            None,
+        ),
+        (lambda s: ["power", "--baseline", s("b.json", [1]), "--variant", s("v.json", [1, 2]), "--target", "1"], None),
+        (
+            lambda s: ["power", "--baseline", s("b.json", [1, 2]), "--variant", s("v.json", {"a": 1}), "--target", "1"],
+            None,
+        ),
     ],
     ids=[
         "missing target",
@@ -407,6 +546,9 @@ def test_cli_power_parity(scores, args_fn):
         "unknown command",
         "power without spread",
         "unknown flag",
+        "power --paired pilot, unequal lengths",
+        "power pilot arm too short",
+        "power pilot, array and object",
     ],
 )
 def test_cli_usage_errors_exit_2_in_both(scores, args_fn, stdin):

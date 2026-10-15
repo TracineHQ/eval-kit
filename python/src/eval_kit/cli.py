@@ -15,7 +15,7 @@ import warnings
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
-from math import isfinite
+from math import isfinite, sqrt
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -47,7 +47,12 @@ Examples:
 
 compare   Test a variant against a baseline and give a verdict:
           improved, regressed, no_change, or cant_tell.
-power     How many runs per arm (or items, with --paired) to detect --target.
+power     How many runs per arm (or items, when paired) to detect --target.
+          Sizes from --std, --sd-diff, or pilot scores. A --baseline pilot
+          alone uses its std. With --variant too, power reads the design the
+          way compare does: independent runs use the pooled std of both arms,
+          sqrt((sd1^2 + sd2^2) / 2); paired items use the std of their
+          differences. A spread of 0 warns: the n is the minimum, not a plan.
 
 Input files are JSON. An array of numbers is one score per run, compared
 with Welch's t-test. An object of {{"item id": score}} pairs items across the
@@ -56,7 +61,7 @@ Use - to read one of the files from stdin.
 
 Options:
   --baseline FILE     Baseline scores
-  --variant FILE      Variant scores (compare; paired power pilot)
+  --variant FILE      Variant scores (compare; two-arm power pilot)
   --target N          Smallest shift worth acting on, in score units. Required.
                       Pick it before looking at results.
   --paired            Pair arrays by index (objects always pair by id)
@@ -269,13 +274,21 @@ def _compare_text(v: VerdictResult, mean_a: float, mean_b: float) -> str:
     unit = "items" if v.design == "paired" else "runs per arm"
     design = "paired t-test, same items in both arms" if v.design == "paired" else "Welch's t-test, independent runs"
     target = _num(v.target)
-    effect = "off-scale (the baseline has no spread)" if v.constant_arm == "baseline" else _fixed(v.effect, 2)
+    # zero_spread: no spread to estimate a CI, p, or effect size from. --json
+    # keeps its shape, with placeholders: ci_lo = ci_hi = shift, p 0 or 1, effect 99 or 0.
+    flat = v.reason == "zero_spread"
+    effect = _fixed(v.effect, 2)
+    if flat:
+        effect = f"undefined (no spread in {'the item differences' if v.design == 'paired' else 'either arm'})"
+    elif v.constant_arm == "baseline":
+        effect = "off-scale (the baseline has no spread)"
+    ci = "undefined" if flat else f"[{_signed(v.ci_lo, 2)}, {_signed(v.ci_hi, 2)}]"
     lines = [
         f"eval-kit compare: {design}",
         f"  baseline  n={v.n_baseline}  mean {_fixed(mean_a, 2)}",
         f"  variant   n={v.n_variant}  mean {_fixed(mean_b, 2)}",
-        f"  shift     {_signed(v.shift, 2)}  95% CI [{_signed(v.ci_lo, 2)}, {_signed(v.ci_hi, 2)}]",
-        f"  p         {_p_text(v.p)}",
+        f"  shift     {_signed(v.shift, 2)}  95% CI {ci}",
+        f"  p         {'undefined' if flat else _p_text(v.p)}",
         f"  {v.effect_name.ljust(8)}  {effect}",
         f"  target    {target} ({'lower' if v.lower_is_better else 'higher'} is better)",
         "",
@@ -371,23 +384,57 @@ def _run_compare(args: Args) -> int:
     return EXIT_OK
 
 
+def _pooled_std(sd_a: float, sd_b: float) -> float:
+    """The common std at which required_n's two-arm math (equal n per arm)
+    gives the standard error these two spreads give: sqrt((sd_a^2 + sd_b^2) / 2).
+    It is the usual pooled std when the pilot arms are the same size. Scaled
+    so tiny or huge spreads don't underflow or overflow when squared."""
+    scale = max(sd_a, sd_b)
+    if scale == 0:
+        return 0.0
+    a, b = sd_a / scale, sd_b / scale
+    return scale * sqrt((a * a + b * b) / 2)
+
+
 def _run_power(args: Args) -> int:
     target = _parse_target(args.target)
     paired = args.paired
+    what = "baseline std"
+    constant: str | None = None  # what had no spread, for the warning
     if args.std is not None:
         if paired:
             raise UsageError("--std sizes independent runs; for --paired use --sd-diff")
         spread = _parse_non_negative(args.std, "--std")
+        if spread == 0:
+            constant = "A std of 0 means every run scores the same"
     elif args.sd_diff is not None:
         spread = _parse_non_negative(args.sd_diff, "--sd-diff")
         paired = True
+        if spread == 0:
+            constant = "An sd of 0 means every item moves by the same amount"
     elif args.baseline and args.variant:
-        a, b, _ = _align(_read_scores(args.baseline), _read_scores(args.variant), True)
-        pilot = paired_t_test(a, b)
-        if pilot is None:
-            raise UsageError("the paired pilot needs at least 2 items")
-        spread = pilot.sd_diff
-        paired = True
+        # Pair exactly when compare would: objects by id, arrays only with --paired.
+        a, b, paired = _align(_read_scores(args.baseline), _read_scores(args.variant), paired)
+        if paired:
+            pilot = paired_t_test(a, b)
+            if pilot is None:
+                raise UsageError("the paired pilot needs at least 2 items")
+            spread = pilot.sd_diff
+            if spread == 0:
+                constant = "Every item moved by exactly the same amount"
+        else:
+            if len(a) < 2 or len(b) < 2:
+                raise UsageError("each arm needs at least 2 scores")
+            sa, sb = descriptive_stats(a), descriptive_stats(b)
+            assert sa is not None and sb is not None
+            spread = _pooled_std(sa.std, sb.std)
+            what = "pooled std"
+            if spread == 0:
+                constant = "Every run in both arms scored the same"
+            elif sa.std == 0:
+                constant = f"Every baseline run scored the same ({_fixed(sa.mean, 2)})"
+            elif sb.std == 0:
+                constant = f"Every variant run scored the same ({_fixed(sb.mean, 2)})"
     elif args.baseline:
         if paired:
             raise UsageError("--paired power needs --sd-diff, or --baseline and --variant from a pilot")
@@ -395,8 +442,10 @@ def _run_power(args: Args) -> int:
         if s is None or s.n < 2:
             raise UsageError("the baseline needs at least 2 scores")
         spread = s.std
+        if spread == 0:
+            constant = f"Every baseline run scored the same ({_fixed(s.mean, 2)})"
     else:
-        raise UsageError("power needs --std, --sd-diff, or --baseline (and --variant for a paired pilot)")
+        raise UsageError("power needs --std, --sd-diff, or a pilot: --baseline, optionally with --variant")
 
     needed = required_n_paired(spread, target) if paired else required_n(spread, target)
     if not needed <= MAX_SAFE_INTEGER:
@@ -404,13 +453,20 @@ def _run_power(args: Args) -> int:
     design = "paired" if paired else "welch"
     if args.json:
         _say(_json({"design": design, "target": target, "spread": spread, "needed": needed}))
-    else:
-        unit = "items" if paired else "runs per arm"
-        what = "sd of differences" if paired else "baseline std"
-        _say(
-            f"{_num(float(needed))} {unit} to detect a {_num(target)}-point shift "
-            f"({what} {_fixed(spread, 2)}, 80% power, alpha 0.05)"
+        return EXIT_OK
+    unit = "items" if paired else "runs per arm"
+    if paired:
+        what = "sd of differences"
+    n = _num(float(needed))
+    lines = [f"{n} {unit} to detect a {_num(target)}-point shift ({what} {_fixed(spread, 2)}, 80% power, alpha 0.05)"]
+    if constant:
+        lines.append(f"{constant}. That is {'usually' if paired else 'a ceiling or'} a broken harness;")
+        lines.append(
+            f"check {'it' if paired else 'which'} first. With no spread to size from, {n} is the minimum, not a plan."
+            if spread == 0
+            else "check which before trusting this number."
         )
+    _say("\n".join(lines))
     return EXIT_OK
 
 

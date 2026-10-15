@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   stats,
@@ -343,4 +346,135 @@ test('verdict() returns null for invalid input', () => {
   assert.equal(verdict([1, 2, 3], [4, 5, 6], { target: NaN }), null);
   // JS-only: Python's target is a required positional argument, so it cannot be omitted.
   assert.equal(verdict([1, 2, 3], [4, 5, 6]), null);
+});
+
+// ---------------------------------------------------------------------------
+// CLI (cli.mjs). Mirrored in python/tests/test_stats.py against eval_kit.cli;
+// tests/cross-validation/ holds the two CLIs to the same bytes.
+// ---------------------------------------------------------------------------
+
+const CLI = fileURLToPath(new URL('../cli.mjs', import.meta.url));
+const TMP = mkdtempSync(join(tmpdir(), 'eval-kit-test-'));
+let fileCount = 0;
+
+function scoreFile(data) {
+  const path = join(TMP, `scores-${fileCount++}.json`);
+  writeFileSync(path, JSON.stringify(data));
+  return path;
+}
+
+function cli(...args) {
+  const r = spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8' });
+  return { code: r.status, out: r.stdout, err: r.stderr };
+}
+
+function cliJson(...args) {
+  const r = cli(...args, '--json');
+  assert.equal(r.code, 0, r.err);
+  return JSON.parse(r.out);
+}
+
+const PILOT_BASE = [80.1, 82.4, 79.0, 83.5];
+const PILOT_VARI = [83.9, 81.2, 86.0, 84.7];
+
+test('cli power sizes two arrays as independent runs, from the pooled std', () => {
+  // Regression: 0.1.0 paired two arrays by index, answered in items, and
+  // refused unequal lengths with a --paired error nobody had asked for.
+  const base = scoreFile(PILOT_BASE);
+  const vari = scoreFile(PILOT_VARI);
+  const pooled = Math.sqrt((stats(PILOT_BASE).std ** 2 + stats(PILOT_VARI).std ** 2) / 2);
+  const r = cliJson('power', '--baseline', base, '--variant', vari, '--target', '3');
+  assert.equal(r.design, 'welch');
+  assert.ok(Math.abs(r.spread - pooled) < 1e-12);
+  assert.equal(r.needed, requiredN(pooled, 3));
+  assert.match(cli('power', '--baseline', base, '--variant', vari, '--target', '3').out, /^9 runs per arm .*\(pooled std 2\.05,/);
+
+  const unequal = cli('power', '--baseline', base, '--variant', scoreFile([...PILOT_VARI, 85.1]), '--target', '3');
+  assert.equal(unequal.code, 0, unequal.err);
+  assert.match(unequal.out, /runs per arm/);
+  // The baseline-only path is unchanged.
+  assert.equal(cli('power', '--baseline', base, '--target', '3').out,
+    '9 runs per arm to detect a 3-point shift (baseline std 2.06, 80% power, alpha 0.05)\n');
+});
+
+test('cli power pairs a pilot only when compare would', () => {
+  const base = scoreFile(PILOT_BASE);
+  const vari = scoreFile(PILOT_VARI);
+  const byIndex = cliJson('power', '--baseline', base, '--variant', vari, '--target', '3', '--paired');
+  assert.equal(byIndex.design, 'paired');
+  assert.equal(byIndex.spread, pairedTTest(PILOT_BASE, PILOT_VARI).sdDiff);
+  assert.equal(byIndex.needed, requiredNPaired(byIndex.spread, 3));
+
+  const objBase = scoreFile({ a: 40, b: 55, c: 62 });
+  const objVari = scoreFile({ c: 65, a: 42, b: 56 });
+  for (const args of [
+    ['--baseline', base, '--variant', vari, '--target', '3'],
+    ['--baseline', base, '--variant', vari, '--target', '3', '--paired'],
+    ['--baseline', objBase, '--variant', objVari, '--target', '1'],
+  ]) {
+    assert.equal(cliJson('power', ...args).design, cliJson('compare', ...args).design, args.join(' '));
+  }
+
+  const unequal = cli('power', '--baseline', base, '--variant', scoreFile([1, 2, 3]), '--target', '3', '--paired');
+  assert.equal(unequal.code, 2);
+  assert.equal(unequal.err, 'eval-kit: --paired needs equal lengths (baseline 4, variant 3)\n');
+});
+
+test('cli power warns when there is no spread to size from', () => {
+  const minimum = 'With no spread to size from, 2 is the minimum, not a plan.';
+  const flat = scoreFile([0.8, 0.8, 0.8, 0.8, 0.8]);
+  const cases = [
+    [['--std', '0'], 'A std of 0 means every run scores the same. That is a ceiling or a broken harness;'],
+    [['--baseline', flat], 'Every baseline run scored the same (0.80). That is a ceiling or a broken harness;'],
+    [['--baseline', flat, '--variant', flat], 'Every run in both arms scored the same. That is a ceiling or a broken harness;'],
+    [['--sd-diff', '0'], 'An sd of 0 means every item moves by the same amount. That is usually a broken harness;'],
+    [
+      ['--baseline', scoreFile({ a: 1, b: 2 }), '--variant', scoreFile({ a: 2, b: 3 })],
+      'Every item moved by exactly the same amount. That is usually a broken harness;',
+    ],
+  ];
+  for (const [args, cause] of cases) {
+    const r = cli('power', ...args, '--target', '3');
+    assert.equal(r.code, 0, r.err);
+    const lines = r.out.trimEnd().split('\n');
+    assert.match(lines[0], /^2 (runs per arm|items) to detect a 3-point shift \(.* 0\.00, 80% power, alpha 0\.05\)$/);
+    assert.equal(lines[1], cause);
+    assert.ok(lines[2].endsWith(minimum), lines[2]);
+  }
+
+  // One constant arm in a two-arm pilot: sized from the other arm, with compare's warning.
+  const oneFlat = cli('power', '--baseline', flat, '--variant', scoreFile([0.84, 0.79, 0.86, 0.83, 0.81]), '--target', '0.03');
+  assert.deepEqual(oneFlat.out.trimEnd().split('\n').slice(1), [
+    'Every baseline run scored the same (0.80). That is a ceiling or a broken harness;',
+    'check which before trusting this number.',
+  ]);
+  // --json keeps its shape; spread 0 is the signal there.
+  assert.deepEqual(cliJson('power', '--std', '0', '--target', '3'), { design: 'welch', target: 3, spread: 0, needed: 2 });
+});
+
+test('cli compare prints the CI, p and effect as undefined when neither arm has spread', () => {
+  // Regression: 0.1.0 printed glassD 99.00, p < 0.001 and a zero-width CI here.
+  const at80 = scoreFile([80, 80, 80, 80, 80]);
+  const at85 = scoreFile([85, 85, 85, 85, 85]);
+  for (const [vari, shift] of [[at85, '+5.00'], [at80, '+0.00']]) {
+    const r = cli('compare', '--baseline', at80, '--variant', vari, '--target', '3', '--gate');
+    assert.equal(r.code, 3);
+    assert.ok(r.out.includes(`  shift     ${shift}  95% CI undefined\n  p         undefined\n`), r.out);
+    assert.ok(r.out.includes('  glassD    undefined (no spread in either arm)\n'), r.out);
+    assert.ok(r.out.includes("CAN'T TELL. Every run in both arms scored the same."), r.out);
+  }
+  const paired = cli('compare', '--baseline', at80, '--variant', at85, '--target', '3', '--paired');
+  assert.ok(paired.out.includes('  dz        undefined (no spread in the item differences)\n'), paired.out);
+
+  // --json keeps its shape and its placeholders.
+  const v = cliJson('compare', '--baseline', at80, '--variant', at85, '--target', '3');
+  assert.deepEqual(Object.keys(v), Object.keys(verdict([1, 2], [3, 4], { target: 1 })));
+  assert.deepEqual(
+    [v.verdict, v.reason, v.shift, v.ciLo, v.ciHi, v.p, v.effect, v.needed, v.constantArm],
+    ['cant_tell', 'zero_spread', 5, 5, 5, 0, 99, null, null],
+  );
+  // One constant arm is unchanged: real numbers, off-scale effect.
+  const one = cli('compare', '--baseline', scoreFile([0.8, 0.8, 0.8, 0.8, 0.8]),
+    '--variant', scoreFile([0.84, 0.79, 0.86, 0.83, 0.81]), '--target', '0.03');
+  assert.ok(one.out.includes('95% CI [-0.01, +0.06]\n  p         0.098\n  glassD    off-scale (the baseline has no spread)\n'), one.out);
 });
