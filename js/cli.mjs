@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { stats, pairedTTest, requiredN, requiredNPaired, verdict } from './lib/stats.mjs';
 
-const VERSION = '0.1.1';
+const VERSION = '0.2.0';
 
 // Exit codes. Outcome codes apply only with --gate, so plain analysis
 // never fails a build.

@@ -6,7 +6,7 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-## [0.1.1] - 2026-10-15
+## [0.2.0] - 2026-10-15
 
 ### Changed
 - `compare --gate` exits 3 when one arm is constant (`constantArm` set), unless the verdict is
@@ -105,6 +105,6 @@ entries are for anyone who copied `stats.mjs` from main before this release.
 - `requiredN` docs gave the wrong multiplier for unequal variance. Double the
   variance means ~1.5x the runs; double the standard deviation means ~2.5x.
 
-[Unreleased]: https://github.com/TracineHQ/eval-kit/compare/v0.1.1...HEAD
-[0.1.1]: https://github.com/TracineHQ/eval-kit/compare/v0.1.0...v0.1.1
+[Unreleased]: https://github.com/TracineHQ/eval-kit/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/TracineHQ/eval-kit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/TracineHQ/eval-kit/releases/tag/v0.1.0

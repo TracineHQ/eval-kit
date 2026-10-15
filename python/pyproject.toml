@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "eval-kit"
-version = "0.1.1"
+version = "0.2.0"
 description = "Did the eval get better, or is that noise? Welch's and paired t-tests, exact power analysis, and a verdict CLI that says 'can't tell yet' when the data can't support a call."
 readme = "README.md"
 license = "Apache-2.0"
