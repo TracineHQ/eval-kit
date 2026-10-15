@@ -6,6 +6,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-15
+
 ### Fixed
 - `power` with `--baseline` and `--variant` reads the design the way `compare` does. Two
   arrays are independent runs, sized from the pooled std of both arms,
@@ -88,5 +90,6 @@ entries are for anyone who copied `stats.mjs` from main before this release.
 - `requiredN` docs gave the wrong multiplier for unequal variance. Double the
   variance means ~1.5x the runs; double the standard deviation means ~2.5x.
 
-[Unreleased]: https://github.com/TracineHQ/eval-kit/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/TracineHQ/eval-kit/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/TracineHQ/eval-kit/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/TracineHQ/eval-kit/releases/tag/v0.1.0
