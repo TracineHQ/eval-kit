@@ -173,19 +173,21 @@ const pText = (p) => (p < 0.001 ? '< 0.001' : fixed(p, 3));
 function compareText(v, sa, sb) {
   const unit = v.design === 'paired' ? 'items' : 'runs per arm';
   const design = v.design === 'paired' ? 'paired t-test, same items in both arms' : "Welch's t-test, independent runs";
-  // zero_spread: no spread to estimate a CI, p, or effect size from. --json
-  // keeps its shape, with placeholders: ciLo = ciHi = shift, p 0 or 1, effect 99 or 0.
-  const flat = v.reason === 'zero_spread';
-  let effect = fixed(v.effect, 2);
-  if (flat) effect = `undefined (no spread in ${v.design === 'paired' ? 'the item differences' : 'either arm'})`;
-  else if (v.constantArm === 'baseline') effect = 'off-scale (the baseline has no spread)';
-  const ci = flat ? 'undefined' : `[${signed(v.ciLo, 2)}, ${signed(v.ciHi, 2)}]`;
+  // verdict() gives null for what the data cannot define. zero_spread: no
+  // spread to estimate a CI, p, or effect size from, so all four are null. A
+  // constant baseline: Glass's delta has no scale, so effect alone is null.
+  let effect;
+  if (v.reason === 'zero_spread') effect = `undefined (no spread in ${v.design === 'paired' ? 'the item differences' : 'either arm'})`;
+  else if (v.effect === null) effect = 'off-scale (the baseline has no spread)';
+  else effect = fixed(v.effect, 2);
+  const ci = v.ciLo === null || v.ciHi === null ? 'undefined' : `[${signed(v.ciLo, 2)}, ${signed(v.ciHi, 2)}]`;
+  const p = v.p === null ? 'undefined' : pText(v.p);
   const lines = [
     `eval-kit compare: ${design}`,
     `  baseline  n=${v.nBaseline}  mean ${fixed(sa.mean, 2)}`,
     `  variant   n=${v.nVariant}  mean ${fixed(sb.mean, 2)}`,
     `  shift     ${signed(v.shift, 2)}  95% CI ${ci}`,
-    `  p         ${flat ? 'undefined' : pText(v.p)}`,
+    `  p         ${p}`,
     `  ${v.effectName.padEnd(8)}  ${effect}`,
     `  target    ${v.target} (${v.lowerIsBetter ? 'lower' : 'higher'} is better)`,
     '',
@@ -193,12 +195,12 @@ function compareText(v, sa, sb) {
   const size = fixed(Math.abs(v.shift), 2);
   if (v.verdict === 'improved' || v.verdict === 'regressed') {
     const dir = v.shift > 0 ? 'higher' : 'lower';
-    lines.push(`${v.verdict.toUpperCase()}. The variant scores ${dir} by ${size}, p ${pText(v.p)}.`);
+    lines.push(`${v.verdict.toUpperCase()}. The variant scores ${dir} by ${size}, p ${p}.`);
     if (Math.abs(v.shift) < v.target) {
       lines.push(`The estimate is below the ${v.target}-point target, but the 95% CI reaches it.`);
     }
   } else if (v.reason === 'below_target') {
-    lines.push(`NO CHANGE at this target. The shift is real (p ${pText(v.p)}), but the 95% CI rules out a shift`);
+    lines.push(`NO CHANGE at this target. The shift is real (p ${p}), but the 95% CI rules out a shift`);
     lines.push(`of ${v.target} or more in either direction.`);
   } else if (v.verdict === 'no_change') {
     lines.push(`NO CHANGE. The 95% CI rules out a shift of ${v.target} or more in either direction.`);
@@ -235,7 +237,10 @@ function runCompare(opts) {
   const v = verdict(a, b, { target, paired, lowerIsBetter: opts['lower-is-better'] });
   const sa = stats(a);
   const sb = stats(b);
-  if (![sa.mean, sb.mean, v.shift, v.ciLo, v.ciHi, v.p, v.effect].every(Number.isFinite)) {
+  // ciLo, ciHi, p and effect are null where verdict() says the data cannot
+  // define them; any other non-finite value means the scores overflowed.
+  const finiteOrNull = (x) => x === null || Number.isFinite(x);
+  if (![sa.mean, sb.mean, v.shift].every(Number.isFinite) || ![v.ciLo, v.ciHi, v.p, v.effect].every(finiteOrNull)) {
     throw new UsageError('the scores are out of range for double precision; rescale them');
   }
   if (v.needed !== null && !(v.needed <= Number.MAX_SAFE_INTEGER)) throw new UsageError('--target is too small for this spread: the run count is too large to compute');

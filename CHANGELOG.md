@@ -14,6 +14,14 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   broken harness and to check which before trusting the verdict. A gate cannot check, so it
   holds the merge. 0.1.0 exited 0 on an `improved` or `no_change` verdict over a constant
   arm. The verdict and the text output are unchanged.
+- `verdict()` in both bindings, and so `compare --json`, reports what the data cannot define
+  as null (`None` in Python) instead of a placeholder. `effect` is null when there is no spread
+  to scale it by: reason `zero_spread` (either design), or a constant baseline under Welch's
+  test. A constant variant keeps a numeric effect, since Glass's delta divides by the baseline
+  std. `ciLo`, `ciHi` and `p` are null for reason `zero_spread`. 0.1.0 reported Glass's delta
+  or dz sentinel, 99 (0 when the means match), as the effect, and with no spread at all a
+  zero-width CI at `shift` and `p` 0 (1 when the arms match). `welchTTest` / `welch_t_test`
+  and `pairedTTest` / `paired_t_test` keep their sentinels. The text output is unchanged.
 
 ### Fixed
 - `power` with `--baseline` and `--variant` reads the design the way `compare` does. Two
@@ -26,8 +34,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 - `compare` with no spread to test against (both arms constant, or every paired difference
   identical) printed a zero-width CI, `p < 0.001`, and an effect size of 99.00. The text output
   now prints them as undefined. The verdict is still `cant_tell`, reason `zero_spread`, and
-  `--gate` still exits 3. `--json` keeps its shape and its placeholders: `ciLo` = `ciHi` =
-  `shift`, `p` 0 (1 when the arms match), `effect` 99 (0 when the arms match).
+  `--gate` still exits 3. `--json` keeps its shape and reports the CI bounds, p and effect as
+  null (see Changed).
 - `power` with no spread to size from (`--std 0`, `--sd-diff 0`, or a constant pilot) printed
   "2 runs per arm" and nothing else. It now names what had no spread and warns that 2 is the
   minimum, not a plan. A two-arm pilot with one constant arm gets `compare`'s constant-arm

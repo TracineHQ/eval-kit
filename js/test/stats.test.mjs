@@ -327,6 +327,35 @@ test('verdict() tests one constant arm and names it', () => {
   assert.equal(verdict(BASE, BASE.map((x) => x + 1), { target: 3 }).constantArm, null);
 });
 
+test('verdict() reports the effect as null when there is no spread to scale it by', () => {
+  // Regression: 0.1.x reported Glass's delta sentinel, 99 (or 0), as the effect.
+  const base = verdict([0.8, 0.8, 0.8, 0.8, 0.8], [0.84, 0.79, 0.86, 0.83, 0.81], { target: 0.03 });
+  assert.equal(base.constantArm, 'baseline');
+  assert.equal(base.effect, null);
+  assert.ok([base.ciLo, base.ciHi, base.p].every(Number.isFinite));
+  // Equal means gave the 0 sentinel, which is no more an effect size than 99.
+  assert.equal(verdict([5, 5, 5], [4, 5, 6], { target: 1 }).effect, null);
+  // A constant variant leaves the baseline std as the scale, so the effect stays a number.
+  const vari = verdict([0.84, 0.79, 0.86, 0.83, 0.81], [0.8, 0.8, 0.8, 0.8, 0.8], { target: 0.03 });
+  assert.equal(vari.constantArm, 'variant');
+  assert.ok(Number.isFinite(vari.effect) && vari.effect > 0);
+});
+
+test('verdict() reports the CI, p and effect as null with no spread at all', () => {
+  // Regression: 0.1.x reported placeholders: ciLo = ciHi = shift, p 0 or 1, effect 99 or 0.
+  for (const [a, b, paired] of [
+    [[80, 80, 80], [85, 85, 85], false],
+    [[5, 5, 5], [5, 5, 5], false],
+    [[0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], true],
+    [[1, 2, 3], [1, 2, 3], true],
+  ]) {
+    const v = verdict(a, b, { target: 1, paired });
+    assert.equal(v.reason, 'zero_spread');
+    assert.deepEqual([v.ciLo, v.ciHi, v.p, v.effect, v.needed], [null, null, null, null, null]);
+    assert.ok(Number.isFinite(v.shift));
+  }
+});
+
 test('verdict() refuses on zero spread instead of calling it', () => {
   const v = verdict([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], { target: 0.1, paired: true });
   assert.equal(v.verdict, 'cant_tell');
@@ -466,17 +495,23 @@ test('cli compare prints the CI, p and effect as undefined when neither arm has 
   const paired = cli('compare', '--baseline', at80, '--variant', at85, '--target', '3', '--paired');
   assert.ok(paired.out.includes('  dz        undefined (no spread in the item differences)\n'), paired.out);
 
-  // --json keeps its shape and its placeholders.
+  // --json keeps its shape and reports what the data cannot define as null.
   const v = cliJson('compare', '--baseline', at80, '--variant', at85, '--target', '3');
   assert.deepEqual(Object.keys(v), Object.keys(verdict([1, 2], [3, 4], { target: 1 })));
   assert.deepEqual(
     [v.verdict, v.reason, v.shift, v.ciLo, v.ciHi, v.p, v.effect, v.needed, v.constantArm],
-    ['cant_tell', 'zero_spread', 5, 5, 5, 0, 99, null, null],
+    ['cant_tell', 'zero_spread', 5, null, null, null, null, null, null],
   );
-  // One constant arm is unchanged: real numbers, off-scale effect.
-  const one = cli('compare', '--baseline', scoreFile([0.8, 0.8, 0.8, 0.8, 0.8]),
-    '--variant', scoreFile([0.84, 0.79, 0.86, 0.83, 0.81]), '--target', '0.03');
+  const pairedJson = cliJson('compare', '--baseline', at80, '--variant', at85, '--target', '3', '--paired');
+  assert.deepEqual([pairedJson.ciLo, pairedJson.ciHi, pairedJson.p, pairedJson.effect], [null, null, null, null]);
+  // One constant baseline: a real CI and p; the effect is off-scale in text and null in --json.
+  const oneArgs = ['compare', '--baseline', scoreFile([0.8, 0.8, 0.8, 0.8, 0.8]),
+    '--variant', scoreFile([0.84, 0.79, 0.86, 0.83, 0.81]), '--target', '0.03'];
+  const one = cli(...oneArgs);
   assert.ok(one.out.includes('95% CI [-0.01, +0.06]\n  p         0.098\n  glassD    off-scale (the baseline has no spread)\n'), one.out);
+  const oneJson = cliJson(...oneArgs);
+  assert.equal(oneJson.effect, null);
+  assert.ok([oneJson.ciLo, oneJson.ciHi, oneJson.p].every(Number.isFinite));
 });
 
 test('cli --gate holds on a constant arm unless the verdict is regressed', () => {

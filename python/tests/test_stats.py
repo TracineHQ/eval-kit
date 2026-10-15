@@ -334,6 +334,34 @@ def test_verdict_tests_one_constant_arm_and_names_it():
     assert verdict(BASE, [x + 1 for x in BASE], 3).constant_arm is None
 
 
+def test_verdict_reports_the_effect_as_none_when_there_is_no_spread_to_scale_it_by():
+    # Regression: 0.1.x reported Glass's delta sentinel, 99 (or 0), as the effect.
+    base = verdict([0.8, 0.8, 0.8, 0.8, 0.8], [0.84, 0.79, 0.86, 0.83, 0.81], 0.03)
+    assert base.constant_arm == "baseline"
+    assert base.effect is None
+    assert all(isinstance(x, float) and math.isfinite(x) for x in [base.ci_lo, base.ci_hi, base.p])
+    # Equal means gave the 0 sentinel, which is no more an effect size than 99.
+    assert verdict([5, 5, 5], [4, 5, 6], 1).effect is None
+    # A constant variant leaves the baseline std as the scale, so the effect stays a number.
+    vari = verdict([0.84, 0.79, 0.86, 0.83, 0.81], [0.8, 0.8, 0.8, 0.8, 0.8], 0.03)
+    assert vari.constant_arm == "variant"
+    assert vari.effect is not None and math.isfinite(vari.effect) and vari.effect > 0
+
+
+def test_verdict_reports_the_ci_p_and_effect_as_none_with_no_spread_at_all():
+    # Regression: 0.1.x reported placeholders: ci_lo = ci_hi = shift, p 0 or 1, effect 99 or 0.
+    for a, b, paired in [
+        ([80, 80, 80], [85, 85, 85], False),
+        ([5, 5, 5], [5, 5, 5], False),
+        ([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], True),
+        ([1, 2, 3], [1, 2, 3], True),
+    ]:
+        v = verdict(a, b, 1, paired=paired)
+        assert v.reason == "zero_spread"
+        assert [v.ci_lo, v.ci_hi, v.p, v.effect, v.needed] == [None, None, None, None, None]
+        assert math.isfinite(v.shift)
+
+
 def test_verdict_refuses_on_zero_spread_instead_of_calling_it():
     v = verdict([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], 0.1, paired=True)
     assert v.verdict == "cant_tell"
@@ -494,13 +522,15 @@ def test_cli_compare_prints_the_ci_p_and_effect_as_undefined_when_neither_arm_ha
     _, out, _ = cli("compare", "--baseline", at80, "--variant", at85, "--target", "3", "--paired")
     assert "  dz        undefined (no spread in the item differences)\n" in out, out
 
-    # --json keeps its shape and its placeholders.
+    # --json keeps its shape and reports what the data cannot define as null.
     v = cli_json("compare", "--baseline", at80, "--variant", at85, "--target", "3")
     assert list(v) == [JSON_KEYS.get(k, k) for k in asdict(verdict([1, 2], [3, 4], 1))]
     fields = ["verdict", "reason", "shift", "ciLo", "ciHi", "p", "effect", "needed", "constantArm"]
-    assert [v[k] for k in fields] == ["cant_tell", "zero_spread", 5, 5, 5, 0, 99, None, None]
-    # One constant arm is unchanged: real numbers, off-scale effect.
-    _, out, _ = cli(
+    assert [v[k] for k in fields] == ["cant_tell", "zero_spread", 5, None, None, None, None, None, None]
+    paired_json = cli_json("compare", "--baseline", at80, "--variant", at85, "--target", "3", "--paired")
+    assert [paired_json[k] for k in ["ciLo", "ciHi", "p", "effect"]] == [None, None, None, None]
+    # One constant baseline: a real CI and p; the effect is off-scale in text and null in --json.
+    one_args = [
         "compare",
         "--baseline",
         score_file([0.8, 0.8, 0.8, 0.8, 0.8]),
@@ -508,8 +538,12 @@ def test_cli_compare_prints_the_ci_p_and_effect_as_undefined_when_neither_arm_ha
         score_file([0.84, 0.79, 0.86, 0.83, 0.81]),
         "--target",
         "0.03",
-    )
+    ]
+    _, out, _ = cli(*one_args)
     assert "95% CI [-0.01, +0.06]\n  p         0.098\n  glassD    off-scale (the baseline has no spread)\n" in out, out
+    one_json = cli_json(*one_args)
+    assert one_json["effect"] is None
+    assert all(isinstance(one_json[k], float) for k in ["ciLo", "ciHi", "p"])
 
 
 def test_cli_gate_holds_on_a_constant_arm_unless_the_verdict_is_regressed(cli, score_file):

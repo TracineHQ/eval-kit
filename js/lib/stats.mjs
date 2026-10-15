@@ -346,7 +346,9 @@ export function stats(values) {
  * runs larger than pooled d whenever the variant is noisier than baseline.
  *
  * diff is a.mean - b.mean, so positive means the variant scored lower.
- * glassD is unsigned (|diff| / std(a)); take direction from diff.
+ * glassD is unsigned (|diff| / std(a)); take direction from diff. When the
+ * baseline std is 0, glassD is the sentinel 99 (0 when diff is 0 too);
+ * verdict() reports that effect as null instead.
  *
  * @param {number[]} a - Baseline scores (the reference group)
  * @param {number[]} b - Variant scores (the thing you're testing)
@@ -368,7 +370,8 @@ export function welchTTest(a, b) {
   // Glass's delta when baseline std is 0: sentinel 99 instead of Infinity.
   // Infinity breaks JSON.stringify (becomes null) and comparison thresholds.
   // 99 means "effect size is off-scale because baseline has zero variance";
-  // 0 means "no difference" (both groups identical).
+  // 0 means "no difference" (both groups identical). verdict() reports null
+  // instead of either sentinel, and instead of p in the se === 0 branch below.
   const glassDZeroStd = diff === 0 ? 0 : 99;
 
   if (se === 0) {
@@ -410,7 +413,9 @@ export function welchTTest(a, b) {
  * between-group d when items are strongly correlated across arms.
  *
  * diff is mean(a - b), so positive means the variant scored lower.
- * dz uses sentinel 99 when every difference is identical and nonzero.
+ * dz uses sentinel 99 when every difference is identical and nonzero (0 when
+ * the arms are identical), with p 0 (or 1). verdict() reports dz, p and the
+ * CI as null there instead.
  *
  * @param {number[]} a - Baseline scores, one per item
  * @param {number[]} b - Variant scores for the same items, same order
@@ -534,6 +539,14 @@ function resolvingN(se1, dfOf, target) {
  * low, by about 1e-8 relative); Infinity when the target is too small for
  * the spread to size at all. For planning a run before collecting data, use
  * requiredN (80% power to detect a target-sized shift), which is smaller.
+ *
+ * What the data cannot define is null, not a placeholder. effect is null
+ * with no spread to scale it by: reason zero_spread (either design), or a
+ * constant baseline under Glass's delta. A constant variant leaves the
+ * baseline std as the scale, so effect stays a number there. ciLo, ciHi and
+ * p are null for reason zero_spread. The low-level welchTTest and
+ * pairedTTest keep their 99 / 0 sentinels.
+ *
  * Returns null for invalid input: fewer than 2 values per arm, mismatched
  * lengths when paired, or a target that is not a positive number.
  *
@@ -541,7 +554,7 @@ function resolvingN(se1, dfOf, target) {
  * @param {number[]} variant
  * @param {{ target: number, paired?: boolean, lowerIsBetter?: boolean }} options
  * @returns {{ verdict, reason, design, target, lowerIsBetter, shift, ciLo, ciHi,
- *   p, effect, effectName, nBaseline, nVariant, needed } | null}
+ *   p, effect, effectName, nBaseline, nVariant, needed, constantArm } | null}
  */
 export function verdict(baseline, variant, { target, paired = false, lowerIsBetter = false } = {}) {
   if (!(target > 0) || !Number.isFinite(target)) return null;
@@ -589,6 +602,8 @@ export function verdict(baseline, variant, { target, paired = false, lowerIsBett
     reason = 'underpowered';
   }
 
+  // null, not the t-tests' sentinels, for what this data cannot define.
+  const noEffect = flat || constantArm === 'baseline';
   return {
     verdict: result,
     reason,
@@ -596,10 +611,10 @@ export function verdict(baseline, variant, { target, paired = false, lowerIsBett
     target,
     lowerIsBetter,
     shift,
-    ciLo: shift - margin,
-    ciHi: shift + margin,
-    p: r.p,
-    effect,
+    ciLo: flat ? null : shift - margin,
+    ciHi: flat ? null : shift + margin,
+    p: flat ? null : r.p,
+    effect: noEffect ? null : effect,
     effectName: paired ? 'dz' : 'glassD',
     nBaseline: baseline.length,
     nVariant: variant.length,

@@ -68,7 +68,7 @@ time). The n in a `cant_tell` answers "when must the result be a call?", so it i
 | `improved` / `regressed` | p < 0.05 and the 95% CI reaches the target; direction from the shift and `--lower-is-better` | The shift with its 95% CI. If the CLI says the estimate is below the target, say so: the shift is real and the CI reaches the bar, but the best guess sits under it. |
 | `no_change` | The 95% CI rules out a shift of target or more | No meaningful change at this target. Not "no change at all": with reason `below_target` the shift is real, just smaller than the bar. |
 | `cant_tell` (underpowered) | The CI includes both zero and a shift of target in either direction | Not yet. Give the n the CLI reports: at the spread seen so far, the result at that n has to be a call. Do not call it a null result, and do not ship or revert on it. |
-| `cant_tell` (zero spread) | Every run in both arms, or every item difference, is identical | Almost always a broken harness. Stop and inspect it before interpreting anything. The CI, p, and effect size are undefined; do not quote the placeholders `--json` carries. |
+| `cant_tell` (zero spread) | Every run in both arms, or every item difference, is identical | Almost always a broken harness. Stop and inspect it before interpreting anything. The CI, p, and effect size are undefined (null in `--json`); do not put numbers on them. |
 
 If the output also warns that every run in one arm scored the same (`constantArm` in JSON), the
 verdict stands, but lead with the warning: that arm is at a ceiling or its harness is broken. Ask

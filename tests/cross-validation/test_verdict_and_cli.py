@@ -69,6 +69,11 @@ VERDICT_CASES = [
     ),
     ("welch constant baseline", [0.1, 0.1, 0.1], [0.2, 0.25, 0.3], {"target": 0.05}),
     ("welch constant variant", [0.2, 0.25, 0.3], [0.1, 0.1, 0.1], {"target": 0.05}),
+    ("welch constant baseline, regressed", [0.8] * 5, [0.74, 0.76, 0.72, 0.75, 0.73], {"target": 0.05}),
+    ("welch constant variant, improved", [0.74, 0.76, 0.72, 0.75, 0.73], [0.8] * 5, {"target": 0.05}),
+    ("welch constant baseline, equal means", [5, 5, 5], [4, 5, 6], {"target": 1}),
+    ("welch constant baseline, underpowered", [0.8] * 5, [0.84, 0.79, 0.86, 0.83, 0.81], {"target": 0.03}),
+    ("paired identical arms", [1, 2, 3], [1, 2, 3], {"target": 1, "paired": True}),
     ("float dust is zero spread", [0.3, 0.3, 0.1 + 0.2], [0.4, 0.4, 0.4], {"target": 1}),
     ("significant but below target", LONG_BASE, [x - 0.3 for x in LONG_BASE], {"target": 3}),
     ("not significant, inside target", LONG_BASE, [x - 0.2 for x in LONG_BASE], {"target": 3}),
@@ -91,6 +96,11 @@ EXPECTED = {
     "paired zero spread": ("cant_tell", "zero_spread"),
     "welch constant baseline": ("improved", "significant"),
     "welch constant variant": ("regressed", "significant"),
+    "welch constant baseline, regressed": ("regressed", "significant"),
+    "welch constant variant, improved": ("improved", "significant"),
+    "welch constant baseline, equal means": ("cant_tell", "underpowered"),
+    "welch constant baseline, underpowered": ("cant_tell", "underpowered"),
+    "paired identical arms": ("cant_tell", "zero_spread"),
     "float dust is zero spread": ("cant_tell", "zero_spread"),
     "significant but below target": ("no_change", "below_target"),
     "not significant, inside target": ("no_change", "within_target"),
@@ -149,6 +159,63 @@ def _with_spread(n: int, mean: float, sd: float) -> list[float]:
     raw = [i - (n - 1) / 2 for i in range(n)]
     scale = sd / statistics.stdev(raw)
     return [mean + x * scale for x in raw]
+
+
+UNDEFINED = {"ciLo", "ciHi", "p", "effect"}
+
+# label -> (baseline, variant, options, the fields verdict() must report as null)
+NULL_CASES = {
+    "welch zero spread": ([80] * 5, [85] * 5, {"target": 3}, UNDEFINED),
+    "welch identical arms": ([5, 5, 5], [5, 5, 5], {"target": 1}, UNDEFINED),
+    "welch float dust": ([0.3, 0.3, 0.1 + 0.2], [0.4, 0.4, 0.4], {"target": 1}, UNDEFINED),
+    "paired zero spread": (
+        [0.85, 0.65, 0.95, 0.75, 0.55],
+        [0.8, 0.6, 0.9, 0.7, 0.5],
+        {"target": 0.1, "paired": True},
+        UNDEFINED,
+    ),
+    "paired identical arms": ([1, 2, 3], [1, 2, 3], {"target": 1, "paired": True}, UNDEFINED),
+    "constant baseline, improved": ([0.8] * 5, [0.86, 0.84, 0.88, 0.85, 0.87], {"target": 0.05}, {"effect"}),
+    "constant baseline, regressed": ([0.8] * 5, [0.74, 0.76, 0.72, 0.75, 0.73], {"target": 0.05}, {"effect"}),
+    "constant baseline, equal means": ([5, 5, 5], [4, 5, 6], {"target": 1}, {"effect"}),
+    "constant variant": ([0.74, 0.76, 0.72, 0.75, 0.73], [0.8] * 5, {"target": 0.05}, set()),
+}
+
+
+@pytest.mark.parametrize("base,var,opts,nulls", NULL_CASES.values(), ids=NULL_CASES.keys())
+def test_undefined_stats_are_null_in_both_bindings_and_clis(scores, base, var, opts, nulls):
+    """verdict() reports what the data cannot define as null, not the t-tests'
+    sentinels: the effect with no spread to scale it by (no spread at all, or a
+    constant baseline under Glass's delta), and the CI and p with no spread at
+    all. A constant variant keeps a numeric effect. Both CLIs' --json carry the
+    same nulls; the text output is unchanged and identical."""
+    js = run_js("verdict", base, var, opts)
+    py = _py_verdict(base, var, opts)
+    for key in sorted(UNDEFINED):
+        py_val = getattr(py, PY_FIELDS[key])
+        if key in nulls:
+            assert js[key] is None and py_val is None, key
+        else:
+            assert isinstance(js[key], (int, float)) and isinstance(py_val, float), key
+
+    args = ["compare", "--baseline", scores("b.json", base), "--variant", scores("v.json", var)]
+    args += ["--target", str(opts["target"]), *(["--paired"] if opts.get("paired") else [])]
+    js_cli, py_cli = run_both([*args, "--json"])
+    assert js_cli.returncode == py_cli.returncode == 0, (js_cli.stderr, py_cli.stderr)
+    for out in (js_cli.stdout, py_cli.stdout):
+        assert {k for k, v in json.loads(out).items() if v is None} & UNDEFINED == nulls
+    # Byte-identical JSON, apart from computed floats (ciLo, ciHi, p, effect when
+    # defined), which the CLI contract holds to 1e-9 and can differ in the last digits.
+    computed = UNDEFINED - nulls
+
+    def stable(text: str) -> list[str]:
+        return [line for line in text.splitlines() if line.strip().split('":')[0].strip('"') not in computed]
+
+    assert stable(js_cli.stdout) == stable(py_cli.stdout)
+    if nulls == UNDEFINED:
+        assert js_cli.stdout == py_cli.stdout
+    text_js, text_py = run_both(args)
+    assert text_js.stdout == text_py.stdout
 
 
 @pytest.mark.parametrize(

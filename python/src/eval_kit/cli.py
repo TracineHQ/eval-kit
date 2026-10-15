@@ -275,21 +275,26 @@ def _compare_text(v: VerdictResult, mean_a: float, mean_b: float) -> str:
     unit = "items" if v.design == "paired" else "runs per arm"
     design = "paired t-test, same items in both arms" if v.design == "paired" else "Welch's t-test, independent runs"
     target = _num(v.target)
-    # zero_spread: no spread to estimate a CI, p, or effect size from. --json
-    # keeps its shape, with placeholders: ci_lo = ci_hi = shift, p 0 or 1, effect 99 or 0.
-    flat = v.reason == "zero_spread"
-    effect = _fixed(v.effect, 2)
-    if flat:
+    # verdict() gives None for what the data cannot define. zero_spread: no
+    # spread to estimate a CI, p, or effect size from, so all four are None. A
+    # constant baseline: Glass's delta has no scale, so effect alone is None.
+    if v.reason == "zero_spread":
         effect = f"undefined (no spread in {'the item differences' if v.design == 'paired' else 'either arm'})"
-    elif v.constant_arm == "baseline":
+    elif v.effect is None:
         effect = "off-scale (the baseline has no spread)"
-    ci = "undefined" if flat else f"[{_signed(v.ci_lo, 2)}, {_signed(v.ci_hi, 2)}]"
+    else:
+        effect = _fixed(v.effect, 2)
+    if v.ci_lo is None or v.ci_hi is None:
+        ci = "undefined"
+    else:
+        ci = f"[{_signed(v.ci_lo, 2)}, {_signed(v.ci_hi, 2)}]"
+    p = "undefined" if v.p is None else _p_text(v.p)
     lines = [
         f"eval-kit compare: {design}",
         f"  baseline  n={v.n_baseline}  mean {_fixed(mean_a, 2)}",
         f"  variant   n={v.n_variant}  mean {_fixed(mean_b, 2)}",
         f"  shift     {_signed(v.shift, 2)}  95% CI {ci}",
-        f"  p         {'undefined' if flat else _p_text(v.p)}",
+        f"  p         {p}",
         f"  {v.effect_name.ljust(8)}  {effect}",
         f"  target    {target} ({'lower' if v.lower_is_better else 'higher'} is better)",
         "",
@@ -297,13 +302,11 @@ def _compare_text(v: VerdictResult, mean_a: float, mean_b: float) -> str:
     size = _fixed(abs(v.shift), 2)
     if v.verdict in ("improved", "regressed"):
         direction = "higher" if v.shift > 0 else "lower"
-        lines.append(f"{v.verdict.upper()}. The variant scores {direction} by {size}, p {_p_text(v.p)}.")
+        lines.append(f"{v.verdict.upper()}. The variant scores {direction} by {size}, p {p}.")
         if abs(v.shift) < v.target:
             lines.append(f"The estimate is below the {target}-point target, but the 95% CI reaches it.")
     elif v.reason == "below_target":
-        lines.append(
-            f"NO CHANGE at this target. The shift is real (p {_p_text(v.p)}), but the 95% CI rules out a shift"
-        )
+        lines.append(f"NO CHANGE at this target. The shift is real (p {p}), but the 95% CI rules out a shift")
         lines.append(f"of {target} or more in either direction.")
     elif v.verdict == "no_change":
         lines.append(f"NO CHANGE. The 95% CI rules out a shift of {target} or more in either direction.")
@@ -367,7 +370,11 @@ def _run_compare(args: Args) -> int:
         sa, sb = descriptive_stats(a), descriptive_stats(b)
     if v is None or sa is None or sb is None:
         raise UsageError("each arm needs at least 2 scores")
-    if not all(isfinite(x) for x in [sa.mean, sb.mean, v.shift, v.ci_lo, v.ci_hi, v.p, v.effect]):
+    # ci_lo, ci_hi, p and effect are None where verdict() says the data cannot
+    # define them; any other non-finite value means the scores overflowed.
+    if not all(isfinite(x) for x in [sa.mean, sb.mean, v.shift]) or not all(
+        x is None or isfinite(x) for x in [v.ci_lo, v.ci_hi, v.p, v.effect]
+    ):
         raise UsageError("the scores are out of range for double precision; rescale them")
     if v.needed is not None and not v.needed <= MAX_SAFE_INTEGER:
         raise UsageError("--target is too small for this spread: the run count is too large to compute")
