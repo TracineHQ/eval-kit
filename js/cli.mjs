@@ -56,12 +56,13 @@ Options:
   --std N             power: baseline standard deviation, instead of --baseline
   --sd-diff N         power --paired: std of per-item differences
   --json              Machine-readable output
-  --gate              compare: exit 1 on regressed, 3 on cant_tell
+  --gate              compare: exit 1 on regressed; 3 on cant_tell, or when
+                      one arm is constant (a ceiling or a broken harness)
   -h, --help          Show this help
   --version           Show the version
 
 Exit codes: 0 ok, 1 regressed (--gate), 2 usage or input error,
-3 cant_tell (--gate).
+3 cant_tell or a constant arm (--gate).
 `;
 
 class UsageError extends Error {}
@@ -243,7 +244,9 @@ function runCompare(opts) {
 
   if (!opts.gate) return EXIT_OK;
   if (v.verdict === 'regressed') return EXIT_REGRESSED;
-  if (v.verdict === 'cant_tell') return EXIT_CANT_TELL;
+  // A constant arm is a ceiling or a broken harness, and the text says to check
+  // which before trusting the verdict. A gate cannot check, so it holds.
+  if (v.verdict === 'cant_tell' || v.constantArm !== null) return EXIT_CANT_TELL;
   return EXIT_OK;
 }
 

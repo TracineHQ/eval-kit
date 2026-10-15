@@ -478,3 +478,29 @@ test('cli compare prints the CI, p and effect as undefined when neither arm has 
     '--variant', scoreFile([0.84, 0.79, 0.86, 0.83, 0.81]), '--target', '0.03');
   assert.ok(one.out.includes('95% CI [-0.01, +0.06]\n  p         0.098\n  glassD    off-scale (the baseline has no spread)\n'), one.out);
 });
+
+test('cli --gate holds on a constant arm unless the verdict is regressed', () => {
+  // Regression: 0.1.x exited 0 on an improved verdict over a constant baseline,
+  // while the text said to check the harness before trusting it.
+  const flat = scoreFile([0.8, 0.8, 0.8, 0.8, 0.8]);
+  const up = scoreFile([0.86, 0.84, 0.88, 0.85, 0.87]);
+  const down = scoreFile([0.74, 0.76, 0.72, 0.75, 0.73]);
+  const near = scoreFile([0.8, 0.81, 0.79, 0.8, 0.8]);
+  const cases = [
+    ['constant baseline, improved', flat, up, 'IMPROVED.', 3],
+    ['constant baseline, no change', flat, near, 'NO CHANGE.', 3],
+    ['constant baseline, regressed', flat, down, 'REGRESSED.', 1],
+    ['constant variant, improved', down, flat, 'IMPROVED.', 3],
+    ['constant variant, regressed', up, flat, 'REGRESSED.', 1],
+  ];
+  for (const [label, base, vari, call, code] of cases) {
+    const args = ['compare', '--baseline', base, '--variant', vari, '--target', '0.05'];
+    const gated = cli(...args, '--gate');
+    assert.equal(gated.code, code, label);
+    assert.ok(gated.out.includes(`\n${call} `), `${label}: ${gated.out}`);
+    // Only the exit code changes: the verdict and the text are the same as without --gate.
+    const plain = cli(...args);
+    assert.equal(plain.code, 0, label);
+    assert.equal(plain.out, gated.out, label);
+  }
+});

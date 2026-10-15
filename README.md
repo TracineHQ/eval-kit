@@ -130,8 +130,9 @@ Resolving it takes 16 runs per arm at the spread seen so far; you have 4.
   makes this stricter than the usual 90% equivalence test.
 - **One constant arm** (every baseline run scored exactly the same) still gets a verdict, since
   Welch's test only needs spread in one arm. `constantArm` names it and the text output warns:
-  a constant arm is a ceiling or a broken harness, and only you can tell which. Both arms
-  constant, or every paired difference identical, is `cant_tell` (reason `zero_spread`).
+  a constant arm is a ceiling or a broken harness, and only you can tell which. A gate can't, so
+  `--gate` exits 3 on a constant arm unless the verdict is `regressed`. Both arms constant, or
+  every paired difference identical, is `cant_tell` (reason `zero_spread`).
 - **Zero spread** leaves nothing to estimate uncertainty from, so the text output prints the
   95% CI, p, and effect size as `undefined`. `--json` keeps its shape and carries placeholders:
   `ciLo` and `ciHi` equal `shift`, `p` is 0 (1 when the arms match), `effect` is 99 (0 when the
@@ -152,13 +153,15 @@ Resolving it takes 16 runs per arm at the spread seen so far; you have 4.
 
 | Exit | Meaning |
 |---|---|
-| 0 | `improved` or `no_change` (and every run without `--gate`) |
-| 1 | `regressed` |
+| 0 | `improved` or `no_change` with spread in both arms (and every run without `--gate`) |
+| 1 | `regressed`, constant arm or not |
 | 2 | Usage or input error |
-| 3 | `cant_tell`: not enough data to call it either way |
+| 3 | `cant_tell`: not enough data to call it either way. Also `improved` or `no_change` with a constant arm (`constantArm` set) |
 
 A separate code for "can't tell yet" lets a pipeline hold a merge for more runs instead of
-reading an underpowered result as a pass or a fail.
+reading an underpowered result as a pass or a fail. A constant arm holds the merge the same
+way: the text output says to check whether it is a ceiling or a broken harness before
+trusting the verdict, and a gate cannot check.
 
 ## API parity
 

@@ -8,6 +8,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.1.1] - 2026-10-15
 
+### Changed
+- `compare --gate` exits 3 when one arm is constant (`constantArm` set), unless the verdict is
+  `regressed`, which still exits 1. The text output says a constant arm is a ceiling or a
+  broken harness and to check which before trusting the verdict. A gate cannot check, so it
+  holds the merge. 0.1.0 exited 0 on an `improved` or `no_change` verdict over a constant
+  arm. The verdict and the text output are unchanged.
+
 ### Fixed
 - `power` with `--baseline` and `--variant` reads the design the way `compare` does. Two
   arrays are independent runs, sized from the pooled std of both arms,

@@ -96,7 +96,9 @@ the report.
 ## CI gating
 
 `--gate` turns the verdict into an exit code: 0 improved or no_change, 1 regressed, 2 usage or
-input error, 3 cant_tell. Without `--gate` a successful analysis always exits 0.
+input error, 3 cant_tell. A constant arm (`constantArm` set) also exits 3 unless the verdict is
+regressed: the gate cannot check whether that arm is a ceiling or a broken harness, so it holds.
+Without `--gate` a successful analysis always exits 0.
 
 ## Reporting
 

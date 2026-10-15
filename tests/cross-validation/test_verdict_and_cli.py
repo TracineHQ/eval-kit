@@ -246,6 +246,8 @@ def test_cli_compare_parity(scores, label, base, var, opts, as_json):
     js, py = run_both(args)
     assert js.returncode == py.returncode, (js.stderr, py.stderr)
     expected_exit = {"improved": 0, "no_change": 0, "regressed": 1, "cant_tell": 3}[EXPECTED[label][0]]
+    if EXPECTED[label][0] != "regressed" and _py_verdict(base, var, opts).constant_arm is not None:
+        expected_exit = 3  # --gate holds on a constant arm; see test_cli_gate_holds_on_a_constant_arm
     assert py.returncode == expected_exit
     if as_json:
         # Same keys in the same order, same layout. Computed floats may differ
@@ -266,6 +268,43 @@ def test_cli_compare_parity(scores, label, base, var, opts, as_json):
         assert len(js.stdout.splitlines()) == len(py.stdout.splitlines())
     else:
         assert js.stdout == py.stdout
+
+
+FLAT = [0.8] * 5
+UP = [0.86, 0.84, 0.88, 0.85, 0.87]
+DOWN = [0.74, 0.76, 0.72, 0.75, 0.73]
+
+
+@pytest.mark.parametrize(
+    "base,var,call,code",
+    [
+        (FLAT, UP, "IMPROVED.", 3),
+        (FLAT, [0.8, 0.81, 0.79, 0.8, 0.8], "NO CHANGE.", 3),
+        (FLAT, DOWN, "REGRESSED.", 1),
+        (DOWN, FLAT, "IMPROVED.", 3),
+        (UP, FLAT, "REGRESSED.", 1),
+    ],
+    ids=[
+        "constant baseline, improved",
+        "constant baseline, no change",
+        "constant baseline, regressed",
+        "constant variant, improved",
+        "constant variant, regressed",
+    ],
+)
+def test_cli_gate_holds_on_a_constant_arm(scores, base, var, call, code):
+    """A constant arm is a ceiling or a broken harness, and the text says to
+    check which before trusting the verdict. A gate cannot check, so --gate
+    exits 3 unless the verdict is regressed (exit 1). The verdict and the text
+    are the same as without --gate."""
+    args = ["compare", "--baseline", scores("b.json", base), "--variant", scores("v.json", var), "--target", "0.05"]
+    js, py = run_both([*args, "--gate"])
+    assert js.returncode == py.returncode == code, (js.stderr, py.stderr)
+    assert js.stdout == py.stdout
+    assert f"\n{call} " in py.stdout, py.stdout
+    plain_js, plain_py = run_both(args)
+    assert plain_js.returncode == plain_py.returncode == 0
+    assert plain_js.stdout == plain_py.stdout == py.stdout
 
 
 def test_cli_rounding_tie_matches_to_fixed(scores):
