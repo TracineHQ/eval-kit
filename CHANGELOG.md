@@ -6,6 +6,21 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- A score file that repeats an item id kept only its last score, silently. Both CLIs now exit 2
+  and name the id: `<file> repeats item id "r1"; give each item one score (average repeated
+  calls first)`. Only the top-level object holds ids; a repeat nested deeper keeps the shape
+  error.
+- The Python CLI crashed with a traceback (exit 1, which `--gate` reads as regressed) when a
+  printed value reached 1e19. It now prints what the JS CLI prints, including exponent form
+  from 1e21.
+- An integer longer than 4300 digits got a different error from each CLI. Both now say the file
+  must be a JSON array of numbers or an object of `{"item id": number}`.
+- Error messages quote item ids and escape control characters, so an id cannot forge a line or
+  send a terminal escape: `missing from variant: "a", "b"; missing from baseline: "d"`.
+- The Python CLI writes UTF-8 with `\n` line ends whatever the stream encoding or platform, as
+  Node does.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed

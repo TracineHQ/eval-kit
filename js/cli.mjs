@@ -77,26 +77,75 @@ const READ_ERRORS = {
   ENAMETOOLONG: 'File name too long',
 };
 
+// An id as messages print it: quoted, with backslash, quote and C0/C1 control
+// characters escaped, so an id cannot forge a line or reach the terminal as
+// an escape sequence. Same rule as the Python CLI's _quote_id.
+function quoteId(id) {
+  let out = '"';
+  for (let i = 0; i < id.length; i++) {
+    const c = id.charCodeAt(i);
+    if (c === 0x5c) out += '\\\\';
+    else if (c === 0x22) out += '\\"';
+    else if (c <= 0x1f || (c >= 0x7f && c <= 0x9f)) out += `\\u${c.toString(16).padStart(4, '0')}`;
+    else out += id[i];
+  }
+  return out + '"';
+}
+
+const JSON_SPACE = new Set([' ', '\t', '\n', '\r']);
+
 // Score files are flat. Refuse deep nesting before parsing, identically in
 // both CLIs (Python's json recurses and would crash where Node's parses).
+// Returns the raw text of each key of a top-level object, in file order:
+// JSON.parse keeps only the last of a repeated key, so readScores checks them.
 const MAX_DEPTH = 64;
 function checkDepth(text, name) {
   let depth = 0;
   let inString = false;
   let escaped = false;
+  let topObject = false;
+  let raw = null; // a depth-1 string of a top-level object, as written
+  let pending = null; // that string once closed, until ':' shows it was a key
+  const keys = [];
   for (const ch of text) {
     if (inString) {
       if (escaped) escaped = false;
       else if (ch === '\\') escaped = true;
-      else if (ch === '"') inString = false;
-    } else if (ch === '"') {
+      else if (ch === '"') {
+        inString = false;
+        pending = raw;
+        raw = null;
+        continue;
+      }
+      if (raw !== null) raw += ch;
+      continue;
+    }
+    if (pending !== null && !JSON_SPACE.has(ch)) {
+      if (ch === ':') keys.push(pending);
+      pending = null;
+    }
+    if (ch === '"') {
       inString = true;
+      if (topObject && depth === 1) raw = '';
     } else if (ch === '[' || ch === '{') {
+      if (depth === 0) topObject = ch === '{';
       if (++depth > MAX_DEPTH) throw new UsageError(`${name} is nested too deeply to be a score file`);
     } else if (ch === ']' || ch === '}') {
       depth--;
     }
   }
+  return keys;
+}
+
+// The first key, in file order, whose second occurrence comes first.
+function firstRepeat(rawKeys) {
+  const seen = new Set();
+  for (const raw of rawKeys) {
+    const key = JSON.parse(`"${raw}"`);
+    if (seen.has(key)) return key;
+    seen.add(key);
+  }
+  return null;
 }
 
 function readScores(path) {
@@ -107,12 +156,16 @@ function readScores(path) {
   } catch (err) {
     throw new UsageError(`cannot read ${name}: ${READ_ERRORS[err.code] ?? err.code ?? err.message}`);
   }
-  checkDepth(text, name);
+  const rawKeys = checkDepth(text, name);
   let data;
   try {
     data = JSON.parse(text);
   } catch {
     throw new UsageError(`${name} is not valid JSON`);
+  }
+  const repeat = firstRepeat(rawKeys);
+  if (repeat !== null) {
+    throw new UsageError(`${name} repeats item id ${quoteId(repeat)}; give each item one score (average repeated calls first)`);
   }
   const values = Array.isArray(data) ? data : data && typeof data === 'object' ? Object.values(data) : null;
   if (!values || !values.every((v) => typeof v === 'number' && Number.isFinite(v))) {
@@ -130,7 +183,7 @@ function align(base, vari, pairedFlag) {
     const missing = base.ids.filter((id) => !Object.hasOwn(vari.byId, id));
     const extra = vari.ids.filter((id) => !Object.hasOwn(base.byId, id));
     if (missing.length || extra.length) {
-      const show = (ids) => ids.slice(0, 5).join(', ') + (ids.length > 5 ? ', ...' : '');
+      const show = (ids) => ids.slice(0, 5).map(quoteId).join(', ') + (ids.length > 5 ? ', ...' : '');
       throw new UsageError(
         [missing.length && `missing from variant: ${show(missing)}`, extra.length && `missing from baseline: ${show(extra)}`]
           .filter(Boolean)

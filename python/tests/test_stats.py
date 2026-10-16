@@ -569,3 +569,29 @@ def test_cli_gate_holds_on_a_constant_arm_unless_the_verdict_is_regressed(cli, s
         plain_code, plain_out, _ = cli(*args)
         assert plain_code == 0, label
         assert plain_out == gated_out, label
+
+
+def test_cli_refuses_a_repeated_item_id(cli, tmp_path):
+    # Regression: 0.2.0 kept the last score for a repeated id, so this baseline
+    # compared as n=3, mean 2.20, and 3 of its 6 scores vanished. json.dumps
+    # cannot write a repeated key, so the files are raw text.
+    count = iter(range(1000))
+
+    def raw(text: str) -> str:
+        path = tmp_path / f"raw-{next(count)}.json"
+        path.write_text(text)
+        return str(path)
+
+    base = raw('{"r1":1.9,"r1":2.4,"r1":2.1,"r2":3.0,"r2":3.3,"r3":1.2}')
+    vari = raw('{"r1":1.6,"r2":2.9,"r3":1.0}')
+    hint = "give each item one score (average repeated calls first)"
+    r = cli("compare", "--baseline", base, "--variant", vari, "--target", "1", "--lower-is-better")
+    assert r == (2, "", f'eval-kit: {base} repeats item id "r1"; {hint}\n')
+    # The first id whose second occurrence comes first, decoded and quoted.
+    order = raw('{"a\\n": 1, "b": 2, "b": 3, "a\\u000a": 4}')
+    assert cli("power", "--baseline", order, "--target", "1")[2] == f'eval-kit: {order} repeats item id "b"; {hint}\n'
+    # Only the top-level object holds item ids; a nested repeat is the wrong shape.
+    nested = raw('{"a": {"x": 1, "x": 2}, "b": 1}')
+    assert cli("compare", "--baseline", nested, "--variant", vari, "--target", "1")[2] == (
+        f'eval-kit: {nested} must be a JSON array of numbers or an object of {{"item id": number}}\n'
+    )
