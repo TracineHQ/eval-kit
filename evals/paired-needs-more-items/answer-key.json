@@ -1,0 +1,39 @@
+{
+  "command": "power",
+  "baseline": {
+    "r1": 3.532,
+    "r2": 6.429,
+    "r3": 5.765,
+    "r4": 5.895,
+    "r5": 4.434,
+    "r6": 6.092
+  },
+  "variant": {
+    "r1": 5.737,
+    "r2": 3.576,
+    "r3": 4.315,
+    "r4": 9.065,
+    "r5": 4.623,
+    "r6": 3.739
+  },
+  "target": 1,
+  "expect": {
+    "design": "paired",
+    "needed": 50
+  },
+  "phrases": {
+    "items-needed": {
+      "accept": [
+        "50 items to detect a 1-point shift (sd of differences 2.47, 80% power, alpha 0.05)",
+        "The pilot asks for 50 items, and the suite has 20.",
+        "fifty items at one request each"
+      ],
+      "reject": [
+        "500 items",
+        "about 5.0 seconds",
+        "r50 is missing",
+        "You need 49 items."
+      ]
+    }
+  }
+}

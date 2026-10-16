@@ -1,0 +1,13 @@
+{
+  "negative": true,
+  "phrases": {
+    "answer": {
+      "accept": [
+        "Retrieval is the weakest category at 0.62."
+      ],
+      "reject": [
+        "Coding is the weakest category at 0.74."
+      ]
+    }
+  }
+}

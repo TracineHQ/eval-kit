@@ -35,9 +35,12 @@ published skill limits. Change a prompt, and update its answer key in the same c
 The skill has its own suite under `evals/`, run with `claude plugin eval`.
 Cases need Bash for the CLI, so grant it at run time:
 
-    claude plugin eval . --allow-tools Write "Bash(node *)"
+    claude plugin eval . --allow-tools Write "Bash(node *)" --no-publish
 
 A run makes real model calls. Add `--runs 1 --ablation none` while iterating.
+
+`claude plugin validate .` warns that CLAUDE.md at the plugin root is not loaded as project
+context. That is expected: CLAUDE.md is for contributors.
 
 ## Development setup
 

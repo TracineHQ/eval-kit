@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `SKILL.md` covers several calls per item (average each item's calls into one score; never key
+  a call as its own item), the paired design asking for more items than the suite has (repeat
+  each item, interleave the arms, size again at that k), drift and warm-up, how rough an n from
+  a small pilot is, feeding a finished paired run back into `power`, latency and other skewed
+  metrics, outliers, several metrics on one run, and what to report for pass/fail counts.
+  Reporting is now a block to fill in from the CLI output.
+- Eval cases `paired-needs-more-items`, `repeats-averaged-per-item`, `top-up-runs`,
+  `both-arms-constant`, and the near-miss negative `ignores-single-run-summary`.
+  `zero-spread-harness` is now `constant-baseline`, which is what it tests. `tests/skill/`
+  checks a prompt that shows every call against the per-item means in its answer key, rubric
+  numbers against the CLI's shift, and public text for emdashes.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed
