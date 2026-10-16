@@ -127,6 +127,25 @@ def test_welch_t_test_returns_near_zero_t_when_groups_have_identical_distributio
     assert result.t == 0
 
 
+def test_welch_t_test_with_two_constant_arms_and_different_means():
+    r = welch_t_test([50, 50, 50], [60, 60, 60])
+    assert r is not None
+    # t is inf whatever the sign of diff (-10 here); se == 0 is the check.
+    assert r.t == math.inf
+    assert r.df == 4
+    assert r.se == 0
+    assert r.glass_d == 99
+
+
+def test_welch_t_test_pins_t_df_and_p_at_unequal_variances():
+    # scipy.stats.ttest_ind([80,81,82,83,84], [70,60,80,50,90], equal_var=False)
+    r = welch_t_test([80, 81, 82, 83, 84], [70, 60, 80, 50, 90])
+    assert r is not None
+    assert r.t == pytest.approx(1.6886341073527005, abs=1e-12)
+    assert r.df == pytest.approx(4.07999200079992, abs=1e-12)
+    assert r.p == pytest.approx(0.16515649717911493, abs=1e-12)
+
+
 # ---------------------------------------------------------------------------
 # required_n()
 # ---------------------------------------------------------------------------
@@ -163,6 +182,27 @@ def test_required_n_scales_inversely_with_effect_size():
 
 def test_required_n_returns_inf_for_zero_delta():
     assert required_n(8, 0) == math.inf
+
+
+def test_required_n_at_std_1_sits_on_the_exact_boundary_for_mid_size_d():
+    # required_n's power at these n clears 0.80 by under 0.004, so a df off by
+    # one (2n - 3 for 2n - 2) moves the answer up by one. Paired counts ride along.
+    for d, welch, paired in [(1.06, 15, 10), (1.41, 9, 7), (1.64, 7, 6), (1.8, 6, 5)]:
+        assert required_n(1, d) == welch, f"d={d}"
+        assert required_n_paired(1, d) == paired, f"d={d}"
+
+
+def test_required_n_takes_the_bisection_branch_at_large_n():
+    # scipy power is 0.80000002 at 826596 and 0.79999954 at 826595. Only an n
+    # this large sends the search through the bisection step that raises lo.
+    assert required_n(6.491892124788057, 0.028290668449373238) == 826596
+
+
+def test_required_n_returns_the_z_value_past_the_exact_limit():
+    # Past EXACT_N_LIMIT (1e8) the z guess comes back unsearched. Just past the
+    # limit, a search would still move it, so a higher limit fails the second pin.
+    assert required_n(2.1, 1e-5) == 692271192570
+    assert required_n(1, 3.2e-4) == 153298433
 
 
 # ---------------------------------------------------------------------------
@@ -255,6 +295,12 @@ def test_p_value_uses_the_t_distribution_not_the_normal_at_df_30():
 def test_p_value_handles_t_0_and_t_inf():
     assert p_value(0, 10) == 1
     assert p_value(math.inf, 10) == 0
+
+
+def test_p_value_and_t_critical_at_infinite_df():
+    # The normal limit: 2 * scipy.stats.norm.sf(1) and scipy.stats.norm.ppf(0.975).
+    assert p_value(1, math.inf) == pytest.approx(0.31731050786291415, abs=1e-12)
+    assert t_critical(math.inf) == pytest.approx(1.959963984540054, abs=1e-12)
 
 
 def test_approx_p_value_is_an_alias_of_p_value():
@@ -381,6 +427,12 @@ def test_verdict_returns_none_for_invalid_input():
     assert verdict([1, 2, 3], [4, 5, 6], float("nan")) is None
     # No missing-target case: target is a required positional argument here,
     # so omitting it is a TypeError, not None. The JS options bag can omit it.
+
+
+def test_verdict_calls_a_paired_improvement_significant():
+    v = verdict([40, 55, 62, 70, 78, 85, 91, 48, 66, 73], [42, 57, 63, 72, 80, 88, 92, 50, 69, 75], 1, paired=True)
+    assert (v.verdict, v.reason, v.needed) == ("improved", "significant", 10)
+    assert v.effect == pytest.approx(3, abs=1e-12)
 
 
 # ---------------------------------------------------------------------------

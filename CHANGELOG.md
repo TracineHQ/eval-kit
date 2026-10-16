@@ -6,6 +6,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- The README said p-value parity has a 1e-15 absolute floor; no test used one. It now states
+  the tolerances the suites hold.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed
