@@ -2,8 +2,9 @@
 
 Did the eval get better, or is that noise? The Python binding.
 
-Uses `scipy.stats` as the trusted math layer. Same functions as the JS binding
-at `../js/`, in snake_case. The CLI prints the same output as the JS one.
+Uses `scipy.stats` as the trusted math layer. Same functions as the
+[JS binding](https://github.com/TracineHQ/eval-kit/tree/main/js), in snake_case. The CLI prints
+the same output as the JS one.
 
 ## Install
 
@@ -35,9 +36,10 @@ eval-kit compare --baseline base.json --variant new.json --target 3
 eval-kit power --baseline pilot.json --target 3
 ```
 
-See the top-level [README](../README.md) for input formats, exit codes, and
-methodology.
+See the top-level [README](https://github.com/TracineHQ/eval-kit#readme) for input formats,
+exit codes, and methodology.
 
 ## License
 
-Apache 2.0 -- see [LICENSE](../LICENSE) at repo root.
+Apache 2.0 -- see [LICENSE](https://github.com/TracineHQ/eval-kit/blob/main/LICENSE) and
+[NOTICE](https://github.com/TracineHQ/eval-kit/blob/main/NOTICE).
