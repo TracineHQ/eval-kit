@@ -374,6 +374,22 @@ def test_verdict_reports_shift_as_variant_minus_baseline():
     assert v.ci_lo < v.shift < v.ci_hi
 
 
+def test_verdict_reports_the_spread_it_sized_from():
+    # power --sd-diff or --std takes it to size the next run.
+    a = [40, 55, 62, 70, 78, 85, 91, 48, 66, 73]
+    b = [42, 57, 63, 72, 80, 88, 92, 50, 69, 75]
+    paired = verdict(a, b, 1, paired=True)
+    assert paired.spread == paired_t_test(a, b).sd_diff
+    assert list(asdict(paired))[-3:] == ["needed", "spread", "constant_arm"]
+    # Welch: the pooled std of both arms, which power sizes a two-array pilot from.
+    vari = [83.9, 81.2, 86.0, 84.7]
+    pooled = math.sqrt((descriptive_stats(BASE[:4]).std ** 2 + descriptive_stats(vari).std ** 2) / 2)
+    assert verdict(BASE[:4], vari, 3).spread == pytest.approx(pooled, abs=1e-12)
+    # No spread is measured, not undefined: 0, not None.
+    assert verdict([80, 80, 80], [85, 85, 85], 3).spread == 0
+    assert verdict([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], 0.1, paired=True).spread == 0
+
+
 def test_verdict_returns_none_for_invalid_input():
     assert verdict([1], [1, 2], 1) is None
     assert verdict([1, 2, 3], [1, 2], 1, paired=True) is None
@@ -544,6 +560,22 @@ def test_cli_compare_prints_the_ci_p_and_effect_as_undefined_when_neither_arm_ha
     one_json = cli_json(*one_args)
     assert one_json["effect"] is None
     assert all(isinstance(one_json[k], float) for k in ["ciLo", "ciHi", "p"])
+
+
+def test_cli_compare_prints_the_spread_line(cli, score_file):
+    base, vari = score_file(PILOT_BASE), score_file(PILOT_VARI)
+    _, out, _ = cli("compare", "--baseline", base, "--variant", vari, "--target", "3")
+    assert out.split("\n")[6] == "  spread    2.05 (pooled std)"
+    _, out, _ = cli(
+        "compare",
+        "--baseline",
+        score_file({"a": 40, "b": 55, "c": 62}),
+        "--variant",
+        score_file({"a": 42, "b": 56, "c": 65}),
+        "--target",
+        "1",
+    )
+    assert out.split("\n")[6] == "  spread    1.00 (sd of differences)"
 
 
 def test_cli_gate_holds_on_a_constant_arm_unless_the_verdict_is_regressed(cli, score_file):

@@ -296,6 +296,7 @@ def _compare_text(v: VerdictResult, mean_a: float, mean_b: float) -> str:
         f"  shift     {_signed(v.shift, 2)}  95% CI {ci}",
         f"  p         {p}",
         f"  {v.effect_name.ljust(8)}  {effect}",
+        f"  spread    {_fixed(v.spread, 2)} ({'sd of differences' if v.design == 'paired' else 'pooled std'})",
         f"  target    {target} ({'lower' if v.lower_is_better else 'higher'} is better)",
         "",
     ]

@@ -368,6 +368,22 @@ test('verdict() reports shift as variant minus baseline', () => {
   assert.ok(v.ciLo < v.shift && v.shift < v.ciHi);
 });
 
+test('verdict() reports the spread it sized from', () => {
+  // power --sd-diff or --std takes it to size the next run.
+  const a = [40, 55, 62, 70, 78, 85, 91, 48, 66, 73];
+  const b = [42, 57, 63, 72, 80, 88, 92, 50, 69, 75];
+  const paired = verdict(a, b, { target: 1, paired: true });
+  assert.equal(paired.spread, pairedTTest(a, b).sdDiff);
+  assert.deepEqual(Object.keys(paired).slice(-3), ['needed', 'spread', 'constantArm']);
+  // Welch: the pooled std of both arms, which power sizes a two-array pilot from.
+  const vari = [83.9, 81.2, 86.0, 84.7];
+  const pooled = Math.sqrt((stats(BASE.slice(0, 4)).std ** 2 + stats(vari).std ** 2) / 2);
+  assert.ok(Math.abs(verdict(BASE.slice(0, 4), vari, { target: 3 }).spread - pooled) < 1e-12);
+  // No spread is measured, not undefined: 0, not null.
+  assert.equal(verdict([80, 80, 80], [85, 85, 85], { target: 3 }).spread, 0);
+  assert.equal(verdict([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], { target: 0.1, paired: true }).spread, 0);
+});
+
 test('verdict() returns null for invalid input', () => {
   assert.equal(verdict([1], [1, 2], { target: 1 }), null);
   assert.equal(verdict([1, 2, 3], [1, 2], { target: 1, paired: true }), null);
@@ -512,6 +528,14 @@ test('cli compare prints the CI, p and effect as undefined when neither arm has 
   const oneJson = cliJson(...oneArgs);
   assert.equal(oneJson.effect, null);
   assert.ok([oneJson.ciLo, oneJson.ciHi, oneJson.p].every(Number.isFinite));
+});
+
+test('cli compare prints the spread line', () => {
+  const welch = cli('compare', '--baseline', scoreFile(PILOT_BASE), '--variant', scoreFile(PILOT_VARI), '--target', '3');
+  assert.equal(welch.out.split('\n')[6], '  spread    2.05 (pooled std)');
+  const paired = cli('compare', '--baseline', scoreFile({ a: 40, b: 55, c: 62 }),
+    '--variant', scoreFile({ a: 42, b: 56, c: 65 }), '--target', '1');
+  assert.equal(paired.out.split('\n')[6], '  spread    1.00 (sd of differences)');
 });
 
 test('cli --gate holds on a constant arm unless the verdict is regressed', () => {

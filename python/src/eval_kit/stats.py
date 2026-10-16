@@ -92,6 +92,7 @@ class VerdictResult:
     n_baseline: int
     n_variant: int
     needed: float | None
+    spread: float
     constant_arm: Literal["baseline", "variant"] | None = None
 
 
@@ -432,6 +433,12 @@ def verdict(
     data, use required_n (80% power to detect a target-sized shift), which is
     smaller.
 
+    spread is the spread the comparison sized from: the sd of the per-item
+    differences (paired) or the pooled std of both arms,
+    sqrt((sdA^2 + sdB^2) / 2) (Welch). Pass it to power --sd-diff or --std to
+    size the next run. It is 0, not None, with no spread: zero spread is
+    measured, not undefined.
+
     What the data cannot define is None, not a placeholder. effect is None
     with no spread to scale it by: reason zero_spread (either design), or a
     constant baseline under Glass's delta. A constant variant leaves the
@@ -456,11 +463,13 @@ def verdict(
     constant_arm: Literal["baseline", "variant"] | None = None
     if isinstance(r, PairedResult):
         effect, effect_name, flat = r.dz, "dz", r.sd_diff == 0
+        spread = r.sd_diff
         needed = None if flat else _resolving_n(r.sd_diff, lambda n: n - 1, target)
     else:
         variant_stats = descriptive_stats(variant)
         assert variant_stats is not None
         effect, effect_name = r.glass_d, "glassD"
+        spread = hypot(r.baseline_std, variant_stats.std) / sqrt(2)
         # No spread anywhere to test against: almost always a broken harness.
         # One constant arm is fine for Welch (a ceiling, or a harness to
         # check), so the verdict stands and constant_arm names it.
@@ -512,5 +521,6 @@ def verdict(
         n_baseline=len(baseline),
         n_variant=len(variant),
         needed=needed,
+        spread=spread,
         constant_arm=constant_arm,
     )
