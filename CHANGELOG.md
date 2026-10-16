@@ -6,6 +6,17 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Python 3.14 in the supported versions. CI now runs it, Node 26, and the cross-validation
+  suite on Python 3.10, Python 3.14 and macOS.
+
+### Fixed
+- The Python package allowed scipy 1.11 and 1.12, whose t quantile at small df differs from
+  scipy 1.13 and later, and from the JS binding, by more than the 1e-9 the bindings are held
+  to: 4e-8 at df 0.5, 4e-9 at df 1.5. The 95% CI bounds at small n carried the gap. It now
+  requires `scipy>=1.13`, and CI runs the unit and cross-validation suites at the lowest
+  allowed numpy and scipy.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed
