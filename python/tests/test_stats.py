@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from dataclasses import asdict
 
 import pytest
@@ -435,14 +436,14 @@ def test_cli_power_sizes_two_arrays_as_independent_runs_from_the_pooled_std(cli,
     assert r["spread"] == pytest.approx(pooled, abs=1e-12)
     assert r["needed"] == required_n(pooled, 3)
     _, out, _ = cli("power", "--baseline", base, "--variant", vari, "--target", "3")
-    assert out.startswith("9 runs per arm ") and "(pooled std 2.05," in out
+    assert out.startswith("9 runs per arm ") and "(pooled std 2.05 from 4 and 4 runs," in out
 
     code, out, err = cli("power", "--baseline", base, "--variant", score_file([*PILOT_VARI, 85.1]), "--target", "3")
     assert code == 0, err
     assert "runs per arm" in out
-    # The baseline-only path is unchanged.
+    # A lone baseline array still sizes runs from its std.
     assert cli("power", "--baseline", base, "--target", "3")[1] == (
-        "9 runs per arm to detect a 3-point shift (baseline std 2.06, 80% power, alpha 0.05)\n"
+        "9 runs per arm to detect a 3-point shift (baseline std 2.06 from 4 runs, 80% power, alpha 0.05)\n"
     )
 
 
@@ -486,10 +487,11 @@ def test_cli_power_warns_when_there_is_no_spread_to_size_from(cli, cli_json, sco
         code, out, err = cli("power", *args, "--target", "3")
         assert code == 0, err
         lines = out.rstrip().split("\n")
-        assert lines[0].startswith(
-            ("2 runs per arm to detect a 3-point shift (", "2 items to detect a 3-point shift (")
-        )
-        assert lines[0].endswith(" 0.00, 80% power, alpha 0.05)")
+        assert re.fullmatch(
+            r"2 (runs per arm|items) to detect a 3-point shift \(.* 0\.00( from \d+( and \d+)? (runs|items))?, "
+            r"80% power, alpha 0\.05\)",
+            lines[0],
+        ), lines[0]
         assert lines[1] == cause
         assert lines[2].endswith(minimum), lines[2]
 
@@ -501,13 +503,62 @@ def test_cli_power_warns_when_there_is_no_spread_to_size_from(cli, cli_json, sco
         "Every baseline run scored the same (0.80). That is a ceiling or a broken harness;",
         "check which before trusting this number.",
     ]
-    # --json keeps its shape; spread 0 is the signal there.
+    # --json prints no warning; spread 0 is the signal there.
     assert cli_json("power", "--std", "0", "--target", "3") == {
         "design": "welch",
         "target": 3,
         "spread": 0,
         "needed": 2,
+        "nBaseline": None,
+        "nVariant": None,
+        "constantArm": None,
     }
+
+
+def test_cli_power_refuses_a_lone_object_pilot(cli, cli_json, score_file):
+    # Regression: 0.2.0 sized per-item scores keyed by id as independent runs,
+    # which asks for the wrong design and the wrong n.
+    items = {"a": 2.0, "b": 3.0, "c": 2.5, "d": 4.0, "e": 3.5, "f": 3.0}
+    base = score_file(items)
+    code, out, err = cli("power", "--baseline", base, "--target", "1")
+    assert code == 2
+    assert out == ""
+    assert err == (
+        f"eval-kit: {base} is keyed by item id, so it sizes paired items: add --variant from the same items, "
+        "or give --sd-diff\n"
+    )
+    # The same items in both arms size the paired design, and the line names the pilot size.
+    vari = score_file({"a": 0.5, "b": 0.5, "c": 0.5, "d": 5, "e": 4.5, "f": 7})
+    assert cli("power", "--baseline", base, "--variant", vari, "--target", "1")[1] == (
+        "50 items to detect a 1-point shift (sd of differences 2.47 from 6 items, 80% power, alpha 0.05)\n"
+    )
+    assert cli_json("power", "--baseline", base, "--variant", vari, "--target", "1") == {
+        "design": "paired",
+        "target": 1,
+        "spread": paired_t_test(list(items.values()), [0.5, 0.5, 0.5, 5, 4.5, 7]).sd_diff,
+        "needed": 50,
+        "nBaseline": 6,
+        "nVariant": 6,
+        "constantArm": None,
+    }
+
+
+def test_cli_refuses_a_repeated_value_flag(cli, score_file):
+    # Regression: 0.2.0 silently used the last value, so --target 100 --target 3 tested at 3.
+    base, vari = score_file(PILOT_BASE), score_file(PILOT_VARI)
+    for args, flag in [
+        (["compare", "--baseline", base, "--variant", vari, "--target", "100", "--target", "3"], "--target"),
+        (["compare", "--baseline", base, "--variant", vari, "--target=100", "--target", "3"], "--target"),
+        (["compare", "--baseline", base, "--variant", vari, "--variant", base, "--target", "3"], "--variant"),
+        (["power", "--std", "2", "--std=1", "--target", "3"], "--std"),
+        (["power", "--std", "1", "--target", "1", "--target", "2", "--std", "2"], "--target"),
+    ]:
+        code, out, err = cli(*args)
+        assert code == 2, args
+        assert out == ""
+        assert err == f"eval-kit: {flag} given more than once\nRun eval-kit --help for usage.\n", args
+    # Boolean flags may repeat.
+    assert cli("power", "--std", "2", "--target", "3", "--json", "--json")[0] == 0
 
 
 def test_cli_compare_prints_the_ci_p_and_effect_as_undefined_when_neither_arm_has_spread(cli, cli_json, score_file):

@@ -52,7 +52,7 @@ Options:
   --target N          Smallest shift worth acting on, in score units. Required.
                       Pick it before looking at results.
   --paired            Pair arrays by index (objects always pair by id)
-  --lower-is-better   Lower scores are better (latency, error rate)
+  --lower-is-better   Lower scores are better (latency, error rate); no effect on power
   --std N             power: baseline standard deviation, instead of --baseline
   --sd-diff N         power --paired: std of per-item differences
   --json              Machine-readable output
@@ -227,9 +227,17 @@ function compareText(v, sa, sb) {
   return lines.join('\n');
 }
 
-function runCompare(opts) {
-  if (!opts.baseline || !opts.variant) throw new UsageError('compare needs --baseline and --variant');
+// stdin can feed one arm, not both.
+function checkOneStdin(opts) {
   if (opts.baseline === '-' && opts.variant === '-') throw new UsageError('only one of --baseline and --variant can be -');
+}
+
+function runCompare(opts) {
+  if (opts.std !== undefined || opts['sd-diff'] !== undefined) {
+    throw new UsageError('compare reads the spread from the scores; --std and --sd-diff are for power');
+  }
+  if (!opts.baseline || !opts.variant) throw new UsageError('compare needs --baseline and --variant');
+  checkOneStdin(opts);
   const target = parseTarget(opts.target);
   const { a, b, paired } = align(readScores(opts.baseline), readScores(opts.variant), opts.paired);
   if (a.length < 2 || b.length < 2) throw new UsageError('each arm needs at least 2 scores');
@@ -269,10 +277,19 @@ function pooledStd(sdA, sdB) {
 
 function runPower(opts) {
   const target = parseTarget(opts.target);
+  if (opts.gate) throw new UsageError('--gate is for compare; power has no verdict to gate on');
+  const pilotFiles = opts.baseline !== undefined || opts.variant !== undefined;
+  if ([opts.std !== undefined, opts['sd-diff'] !== undefined, pilotFiles].filter(Boolean).length > 1) {
+    throw new UsageError('give one spread source: --std, --sd-diff, or pilot files (--baseline, optionally --variant)');
+  }
+  checkOneStdin(opts);
   let spread;
   let paired = opts.paired;
   let what = 'baseline std';
   let constant = null; // what had no spread, for the warning
+  let constantArm = null; // the one constant arm of a two-array pilot
+  let nBaseline = null; // pilot size, null without a pilot
+  let nVariant = null;
   if (opts.std !== undefined) {
     if (paired) throw new UsageError('--std sizes independent runs; for --paired use --sd-diff');
     spread = parseNonNegative(opts.std, '--std');
@@ -285,6 +302,8 @@ function runPower(opts) {
     // Pair exactly when compare would: objects by id, arrays only with --paired.
     const pilot = align(readScores(opts.baseline), readScores(opts.variant), paired);
     paired = pilot.paired;
+    nBaseline = pilot.a.length;
+    nVariant = pilot.b.length;
     if (paired) {
       const r = pairedTTest(pilot.a, pilot.b);
       if (!r) throw new UsageError('the paired pilot needs at least 2 items');
@@ -296,15 +315,27 @@ function runPower(opts) {
       const sb = stats(pilot.b);
       spread = pooledStd(sa.std, sb.std);
       what = 'pooled std';
-      if (spread === 0) constant = 'Every run in both arms scored the same';
-      else if (sa.std === 0) constant = `Every baseline run scored the same (${fixed(sa.mean, 2)})`;
-      else if (sb.std === 0) constant = `Every variant run scored the same (${fixed(sb.mean, 2)})`;
+      if (spread === 0) {
+        constant = 'Every run in both arms scored the same';
+      } else if (sa.std === 0) {
+        constant = `Every baseline run scored the same (${fixed(sa.mean, 2)})`;
+        constantArm = 'baseline';
+      } else if (sb.std === 0) {
+        constant = `Every variant run scored the same (${fixed(sb.mean, 2)})`;
+        constantArm = 'variant';
+      }
     }
   } else if (opts.baseline) {
     if (paired) throw new UsageError('--paired power needs --sd-diff, or --baseline and --variant from a pilot');
-    const s = stats(readScores(opts.baseline).values);
+    const base = readScores(opts.baseline);
+    if (base.ids) {
+      const name = opts.baseline === '-' ? 'stdin' : opts.baseline;
+      throw new UsageError(`${name} is keyed by item id, so it sizes paired items: add --variant from the same items, or give --sd-diff`);
+    }
+    const s = stats(base.values);
     if (!s || s.n < 2) throw new UsageError('the baseline needs at least 2 scores');
     spread = s.std;
+    nBaseline = s.n;
     if (spread === 0) constant = `Every baseline run scored the same (${fixed(s.mean, 2)})`;
   } else {
     throw new UsageError('power needs --std, --sd-diff, or a pilot: --baseline, optionally with --variant');
@@ -314,12 +345,17 @@ function runPower(opts) {
   if (!(needed <= Number.MAX_SAFE_INTEGER)) throw new UsageError('--target is too small for this spread: the run count is too large to compute');
   const design = paired ? 'paired' : 'welch';
   if (opts.json) {
-    console.log(JSON.stringify({ design, target, spread, needed }, null, 2));
+    console.log(JSON.stringify({ design, target, spread, needed, nBaseline, nVariant, constantArm }, null, 2));
     return EXIT_OK;
   }
   const unit = paired ? 'items' : 'runs per arm';
   if (paired) what = 'sd of differences';
-  const lines = [`${needed} ${unit} to detect a ${target}-point shift (${what} ${fixed(spread, 2)}, 80% power, alpha 0.05)`];
+  // The pilot size, since a small pilot's spread is a rough estimate.
+  let pilotSize = '';
+  if (paired && nBaseline !== null) pilotSize = ` from ${nBaseline} items`;
+  else if (nVariant !== null) pilotSize = ` from ${nBaseline} and ${nVariant} runs`;
+  else if (nBaseline !== null) pilotSize = ` from ${nBaseline} runs`;
+  const lines = [`${needed} ${unit} to detect a ${target}-point shift (${what} ${fixed(spread, 2)}${pilotSize}, 80% power, alpha 0.05)`];
   if (constant) {
     lines.push(`${constant}. That is ${paired ? 'usually' : 'a ceiling or'} a broken harness;`);
     lines.push(
@@ -366,6 +402,7 @@ export function main(argv) {
     parsed = parseArgs({
       args: attachNegativeValues(argv),
       allowPositionals: true,
+      tokens: true,
       options: {
         baseline: { type: 'string' },
         variant: { type: 'string' },
@@ -380,6 +417,14 @@ export function main(argv) {
         version: { type: 'boolean', default: false },
       },
     });
+    // A repeated value flag would silently keep its last value. Name the flag
+    // whose second occurrence comes first.
+    const seen = new Set();
+    for (const token of parsed.tokens) {
+      if (token.kind !== 'option' || !VALUE_FLAGS.has(`--${token.name}`)) continue;
+      if (seen.has(token.name)) throw new Error(`--${token.name} given more than once`);
+      seen.add(token.name);
+    }
   } catch (err) {
     console.error(`eval-kit: ${parseErrorText(err.message)}\nRun eval-kit --help for usage.`);
     return EXIT_USAGE;

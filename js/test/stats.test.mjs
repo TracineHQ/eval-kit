@@ -416,14 +416,14 @@ test('cli power sizes two arrays as independent runs, from the pooled std', () =
   assert.equal(r.design, 'welch');
   assert.ok(Math.abs(r.spread - pooled) < 1e-12);
   assert.equal(r.needed, requiredN(pooled, 3));
-  assert.match(cli('power', '--baseline', base, '--variant', vari, '--target', '3').out, /^9 runs per arm .*\(pooled std 2\.05,/);
+  assert.match(cli('power', '--baseline', base, '--variant', vari, '--target', '3').out, /^9 runs per arm .*\(pooled std 2\.05 from 4 and 4 runs,/);
 
   const unequal = cli('power', '--baseline', base, '--variant', scoreFile([...PILOT_VARI, 85.1]), '--target', '3');
   assert.equal(unequal.code, 0, unequal.err);
   assert.match(unequal.out, /runs per arm/);
-  // The baseline-only path is unchanged.
+  // A lone baseline array still sizes runs from its std.
   assert.equal(cli('power', '--baseline', base, '--target', '3').out,
-    '9 runs per arm to detect a 3-point shift (baseline std 2.06, 80% power, alpha 0.05)\n');
+    '9 runs per arm to detect a 3-point shift (baseline std 2.06 from 4 runs, 80% power, alpha 0.05)\n');
 });
 
 test('cli power pairs a pilot only when compare would', () => {
@@ -466,7 +466,7 @@ test('cli power warns when there is no spread to size from', () => {
     const r = cli('power', ...args, '--target', '3');
     assert.equal(r.code, 0, r.err);
     const lines = r.out.trimEnd().split('\n');
-    assert.match(lines[0], /^2 (runs per arm|items) to detect a 3-point shift \(.* 0\.00, 80% power, alpha 0\.05\)$/);
+    assert.match(lines[0], /^2 (runs per arm|items) to detect a 3-point shift \(.* 0\.00( from \d+( and \d+)? (runs|items))?, 80% power, alpha 0\.05\)$/);
     assert.equal(lines[1], cause);
     assert.ok(lines[2].endsWith(minimum), lines[2]);
   }
@@ -477,8 +477,49 @@ test('cli power warns when there is no spread to size from', () => {
     'Every baseline run scored the same (0.80). That is a ceiling or a broken harness;',
     'check which before trusting this number.',
   ]);
-  // --json keeps its shape; spread 0 is the signal there.
-  assert.deepEqual(cliJson('power', '--std', '0', '--target', '3'), { design: 'welch', target: 3, spread: 0, needed: 2 });
+  // --json prints no warning; spread 0 is the signal there.
+  assert.deepEqual(cliJson('power', '--std', '0', '--target', '3'), {
+    design: 'welch', target: 3, spread: 0, needed: 2, nBaseline: null, nVariant: null, constantArm: null,
+  });
+});
+
+test('cli power refuses a lone object pilot', () => {
+  // Regression: 0.2.0 sized per-item scores keyed by id as independent runs,
+  // which asks for the wrong design and the wrong n.
+  const items = { a: 2.0, b: 3.0, c: 2.5, d: 4.0, e: 3.5, f: 3.0 };
+  const base = scoreFile(items);
+  const r = cli('power', '--baseline', base, '--target', '1');
+  assert.equal(r.code, 2);
+  assert.equal(r.out, '');
+  assert.equal(r.err, `eval-kit: ${base} is keyed by item id, so it sizes paired items: add --variant from the same items, or give --sd-diff\n`);
+  // The same items in both arms size the paired design, and the line names the pilot size.
+  const vari = scoreFile({ a: 0.5, b: 0.5, c: 0.5, d: 5, e: 4.5, f: 7 });
+  assert.equal(cli('power', '--baseline', base, '--variant', vari, '--target', '1').out,
+    '50 items to detect a 1-point shift (sd of differences 2.47 from 6 items, 80% power, alpha 0.05)\n');
+  assert.deepEqual(cliJson('power', '--baseline', base, '--variant', vari, '--target', '1'), {
+    design: 'paired', target: 1, spread: pairedTTest(Object.values(items), [0.5, 0.5, 0.5, 5, 4.5, 7]).sdDiff,
+    needed: 50, nBaseline: 6, nVariant: 6, constantArm: null,
+  });
+});
+
+test('cli refuses a repeated value flag', () => {
+  // Regression: 0.2.0 silently used the last value, so --target 100 --target 3 tested at 3.
+  const base = scoreFile(PILOT_BASE);
+  const vari = scoreFile(PILOT_VARI);
+  for (const [args, flag] of [
+    [['compare', '--baseline', base, '--variant', vari, '--target', '100', '--target', '3'], '--target'],
+    [['compare', '--baseline', base, '--variant', vari, '--target=100', '--target', '3'], '--target'],
+    [['compare', '--baseline', base, '--variant', vari, '--variant', base, '--target', '3'], '--variant'],
+    [['power', '--std', '2', '--std=1', '--target', '3'], '--std'],
+    [['power', '--std', '1', '--target', '1', '--target', '2', '--std', '2'], '--target'],
+  ]) {
+    const r = cli(...args);
+    assert.equal(r.code, 2, args.join(' '));
+    assert.equal(r.out, '');
+    assert.equal(r.err, `eval-kit: ${flag} given more than once\nRun eval-kit --help for usage.\n`, args.join(' '));
+  }
+  // Boolean flags may repeat.
+  assert.equal(cli('power', '--std', '2', '--target', '3', '--json', '--json').code, 0);
 });
 
 test('cli compare prints the CI, p and effect as undefined when neither arm has spread', () => {

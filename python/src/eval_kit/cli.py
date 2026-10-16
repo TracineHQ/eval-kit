@@ -65,7 +65,7 @@ Options:
   --target N          Smallest shift worth acting on, in score units. Required.
                       Pick it before looking at results.
   --paired            Pair arrays by index (objects always pair by id)
-  --lower-is-better   Lower scores are better (latency, error rate)
+  --lower-is-better   Lower scores are better (latency, error rate); no effect on power
   --std N             power: baseline standard deviation, instead of --baseline
   --sd-diff N         power --paired: std of per-item differences
   --json              Machine-readable output
@@ -354,11 +354,18 @@ def _verdict_json(v: VerdictResult) -> dict[str, Any]:
     return {JSON_KEYS.get(k, k): val for k, val in asdict(v).items()}
 
 
-def _run_compare(args: Args) -> int:
-    if not args.baseline or not args.variant:
-        raise UsageError("compare needs --baseline and --variant")
+def _check_one_stdin(args: Args) -> None:
+    """stdin can feed one arm, not both."""
     if args.baseline == "-" and args.variant == "-":
         raise UsageError("only one of --baseline and --variant can be -")
+
+
+def _run_compare(args: Args) -> int:
+    if args.std is not None or args.sd_diff is not None:
+        raise UsageError("compare reads the spread from the scores; --std and --sd-diff are for power")
+    if not args.baseline or not args.variant:
+        raise UsageError("compare needs --baseline and --variant")
+    _check_one_stdin(args)
     target = _parse_target(args.target)
     a, b, paired = _align(_read_scores(args.baseline), _read_scores(args.variant), args.paired)
     if len(a) < 2 or len(b) < 2:
@@ -408,9 +415,18 @@ def _pooled_std(sd_a: float, sd_b: float) -> float:
 
 def _run_power(args: Args) -> int:
     target = _parse_target(args.target)
+    if args.gate:
+        raise UsageError("--gate is for compare; power has no verdict to gate on")
+    pilot_files = args.baseline is not None or args.variant is not None
+    if sum([args.std is not None, args.sd_diff is not None, pilot_files]) > 1:
+        raise UsageError("give one spread source: --std, --sd-diff, or pilot files (--baseline, optionally --variant)")
+    _check_one_stdin(args)
     paired = args.paired
     what = "baseline std"
     constant: str | None = None  # what had no spread, for the warning
+    constant_arm: str | None = None  # the one constant arm of a two-array pilot
+    n_baseline: int | None = None  # pilot size, None without a pilot
+    n_variant: int | None = None
     if args.std is not None:
         if paired:
             raise UsageError("--std sizes independent runs; for --paired use --sd-diff")
@@ -425,6 +441,7 @@ def _run_power(args: Args) -> int:
     elif args.baseline and args.variant:
         # Pair exactly when compare would: objects by id, arrays only with --paired.
         a, b, paired = _align(_read_scores(args.baseline), _read_scores(args.variant), paired)
+        n_baseline, n_variant = len(a), len(b)
         if paired:
             pilot = paired_t_test(a, b)
             if pilot is None:
@@ -443,15 +460,25 @@ def _run_power(args: Args) -> int:
                 constant = "Every run in both arms scored the same"
             elif sa.std == 0:
                 constant = f"Every baseline run scored the same ({_fixed(sa.mean, 2)})"
+                constant_arm = "baseline"
             elif sb.std == 0:
                 constant = f"Every variant run scored the same ({_fixed(sb.mean, 2)})"
+                constant_arm = "variant"
     elif args.baseline:
         if paired:
             raise UsageError("--paired power needs --sd-diff, or --baseline and --variant from a pilot")
-        s = descriptive_stats(_read_scores(args.baseline)["values"])
+        base = _read_scores(args.baseline)
+        if "ids" in base:
+            name = "stdin" if args.baseline == "-" else args.baseline
+            raise UsageError(
+                f"{name} is keyed by item id, so it sizes paired items: add --variant from the same items, "
+                "or give --sd-diff"
+            )
+        s = descriptive_stats(base["values"])
         if s is None or s.n < 2:
             raise UsageError("the baseline needs at least 2 scores")
         spread = s.std
+        n_baseline = s.n
         if spread == 0:
             constant = f"Every baseline run scored the same ({_fixed(s.mean, 2)})"
     else:
@@ -462,13 +489,36 @@ def _run_power(args: Args) -> int:
         raise UsageError("--target is too small for this spread: the run count is too large to compute")
     design = "paired" if paired else "welch"
     if args.json:
-        _say(_json({"design": design, "target": target, "spread": spread, "needed": needed}))
+        _say(
+            _json(
+                {
+                    "design": design,
+                    "target": target,
+                    "spread": spread,
+                    "needed": needed,
+                    "nBaseline": n_baseline,
+                    "nVariant": n_variant,
+                    "constantArm": constant_arm,
+                }
+            )
+        )
         return EXIT_OK
     unit = "items" if paired else "runs per arm"
     if paired:
         what = "sd of differences"
+    # The pilot size, since a small pilot's spread is a rough estimate.
+    pilot_size = ""
+    if paired and n_baseline is not None:
+        pilot_size = f" from {n_baseline} items"
+    elif n_variant is not None:
+        pilot_size = f" from {n_baseline} and {n_variant} runs"
+    elif n_baseline is not None:
+        pilot_size = f" from {n_baseline} runs"
     n = _num(float(needed))
-    lines = [f"{n} {unit} to detect a {_num(target)}-point shift ({what} {_fixed(spread, 2)}, 80% power, alpha 0.05)"]
+    lines = [
+        f"{n} {unit} to detect a {_num(target)}-point shift "
+        f"({what} {_fixed(spread, 2)}{pilot_size}, 80% power, alpha 0.05)"
+    ]
     if constant:
         lines.append(f"{constant}. That is {'usually' if paired else 'a ceiling or'} a broken harness;")
         lines.append(
@@ -509,6 +559,7 @@ def _parse_args(argv: Sequence[str]) -> Args:
     except - itself (stdin) and a negative number."""
     args = Args()
     tokens = list(argv)
+    given: list[str] = []  # value flags in order, to refuse a repeat
     i = 0
     while i < len(tokens):
         token = tokens[i]
@@ -527,6 +578,7 @@ def _parse_args(argv: Sequence[str]) -> Args:
                     value = nxt
                     i += 1
                 setattr(args, attr, value)
+                given.append(name)
             elif name in BOOLEAN_FLAGS:
                 if eq:
                     raise UsageError(f"--{name} takes no value")
@@ -540,6 +592,12 @@ def _parse_args(argv: Sequence[str]) -> Args:
                 args.help = True
         else:
             args.command.append(token)
+    # A repeated value flag would silently keep its last value. Checked after
+    # the loop, as parseArgs reports unknown options and missing values first;
+    # names the flag whose second occurrence comes first.
+    for k, name in enumerate(given):
+        if name in given[:k]:
+            raise UsageError(f"--{name} given more than once")
     return args
 
 
