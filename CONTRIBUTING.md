@@ -111,6 +111,10 @@ If you believe a formula is wrong, open an issue with a citation before writing 
   JSON.stringify and comparison thresholds; 99 means "off-scale").
 - `glassD = 0` when both groups are identical (std=0, diff=0).
 - `dz = 99` when every paired difference is identical and nonzero; `dz = 0` when the arms are identical.
+- `verdict()` does not pass these on. It reports `effect` as `null` / `None` when there is no
+  spread to scale it by (reason `zero_spread`, or a constant baseline under Glass's delta), and
+  `ciLo`, `ciHi` and `p` as `null` / `None` for reason `zero_spread`. The `--json` output
+  carries the same nulls.
 - `requiredN(std, 0) = Infinity`, same for `requiredNPaired`.
 - `pairedTTest` returns `null` / `None` for mismatched lengths or n < 2.
 - Empty input returns `null` / `None` from `stats` / `descriptive_stats`.

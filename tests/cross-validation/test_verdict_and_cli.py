@@ -12,6 +12,7 @@ Run (from repo root):
 from __future__ import annotations
 
 import json
+import math
 import random
 import statistics
 import subprocess
@@ -21,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from scipy import stats as sp
 
 from eval_kit.stats import paired_t_test, verdict
 
@@ -67,6 +69,11 @@ VERDICT_CASES = [
     ),
     ("welch constant baseline", [0.1, 0.1, 0.1], [0.2, 0.25, 0.3], {"target": 0.05}),
     ("welch constant variant", [0.2, 0.25, 0.3], [0.1, 0.1, 0.1], {"target": 0.05}),
+    ("welch constant baseline, regressed", [0.8] * 5, [0.74, 0.76, 0.72, 0.75, 0.73], {"target": 0.05}),
+    ("welch constant variant, improved", [0.74, 0.76, 0.72, 0.75, 0.73], [0.8] * 5, {"target": 0.05}),
+    ("welch constant baseline, equal means", [5, 5, 5], [4, 5, 6], {"target": 1}),
+    ("welch constant baseline, underpowered", [0.8] * 5, [0.84, 0.79, 0.86, 0.83, 0.81], {"target": 0.03}),
+    ("paired identical arms", [1, 2, 3], [1, 2, 3], {"target": 1, "paired": True}),
     ("float dust is zero spread", [0.3, 0.3, 0.1 + 0.2], [0.4, 0.4, 0.4], {"target": 1}),
     ("significant but below target", LONG_BASE, [x - 0.3 for x in LONG_BASE], {"target": 3}),
     ("not significant, inside target", LONG_BASE, [x - 0.2 for x in LONG_BASE], {"target": 3}),
@@ -74,6 +81,7 @@ VERDICT_CASES = [
     ("unequal n", WELCH_BASE[:6], [83.9, 81.2, 86.0, 84.7], {"target": 3}),
     ("unequal n and variance", WELCH_BASE, [70, 60, 80, 50], {"target": 3}),
     ("identical arms", [5, 5, 5], [5, 5, 5], {"target": 1}),
+    ("both arms constant, different means", [80] * 5, [85] * 5, {"target": 3}),
     ("rounding tie", [1, 2, 3, 4, 5, 6, 7, 8], [1, 2, 3, 4, 5, 6, 7, 9], {"target": 2}),
 ]
 
@@ -88,6 +96,11 @@ EXPECTED = {
     "paired zero spread": ("cant_tell", "zero_spread"),
     "welch constant baseline": ("improved", "significant"),
     "welch constant variant": ("regressed", "significant"),
+    "welch constant baseline, regressed": ("regressed", "significant"),
+    "welch constant variant, improved": ("improved", "significant"),
+    "welch constant baseline, equal means": ("cant_tell", "underpowered"),
+    "welch constant baseline, underpowered": ("cant_tell", "underpowered"),
+    "paired identical arms": ("cant_tell", "zero_spread"),
     "float dust is zero spread": ("cant_tell", "zero_spread"),
     "significant but below target": ("no_change", "below_target"),
     "not significant, inside target": ("no_change", "within_target"),
@@ -95,6 +108,7 @@ EXPECTED = {
     "unequal n": ("cant_tell", "underpowered"),
     "unequal n and variance": ("cant_tell", "underpowered"),
     "identical arms": ("cant_tell", "zero_spread"),
+    "both arms constant, different means": ("cant_tell", "zero_spread"),
     "rounding tie": ("cant_tell", "underpowered"),
 }
 
@@ -145,6 +159,63 @@ def _with_spread(n: int, mean: float, sd: float) -> list[float]:
     raw = [i - (n - 1) / 2 for i in range(n)]
     scale = sd / statistics.stdev(raw)
     return [mean + x * scale for x in raw]
+
+
+UNDEFINED = {"ciLo", "ciHi", "p", "effect"}
+
+# label -> (baseline, variant, options, the fields verdict() must report as null)
+NULL_CASES = {
+    "welch zero spread": ([80] * 5, [85] * 5, {"target": 3}, UNDEFINED),
+    "welch identical arms": ([5, 5, 5], [5, 5, 5], {"target": 1}, UNDEFINED),
+    "welch float dust": ([0.3, 0.3, 0.1 + 0.2], [0.4, 0.4, 0.4], {"target": 1}, UNDEFINED),
+    "paired zero spread": (
+        [0.85, 0.65, 0.95, 0.75, 0.55],
+        [0.8, 0.6, 0.9, 0.7, 0.5],
+        {"target": 0.1, "paired": True},
+        UNDEFINED,
+    ),
+    "paired identical arms": ([1, 2, 3], [1, 2, 3], {"target": 1, "paired": True}, UNDEFINED),
+    "constant baseline, improved": ([0.8] * 5, [0.86, 0.84, 0.88, 0.85, 0.87], {"target": 0.05}, {"effect"}),
+    "constant baseline, regressed": ([0.8] * 5, [0.74, 0.76, 0.72, 0.75, 0.73], {"target": 0.05}, {"effect"}),
+    "constant baseline, equal means": ([5, 5, 5], [4, 5, 6], {"target": 1}, {"effect"}),
+    "constant variant": ([0.74, 0.76, 0.72, 0.75, 0.73], [0.8] * 5, {"target": 0.05}, set()),
+}
+
+
+@pytest.mark.parametrize("base,var,opts,nulls", NULL_CASES.values(), ids=NULL_CASES.keys())
+def test_undefined_stats_are_null_in_both_bindings_and_clis(scores, base, var, opts, nulls):
+    """verdict() reports what the data cannot define as null, not the t-tests'
+    sentinels: the effect with no spread to scale it by (no spread at all, or a
+    constant baseline under Glass's delta), and the CI and p with no spread at
+    all. A constant variant keeps a numeric effect. Both CLIs' --json carry the
+    same nulls; the text output is unchanged and identical."""
+    js = run_js("verdict", base, var, opts)
+    py = _py_verdict(base, var, opts)
+    for key in sorted(UNDEFINED):
+        py_val = getattr(py, PY_FIELDS[key])
+        if key in nulls:
+            assert js[key] is None and py_val is None, key
+        else:
+            assert isinstance(js[key], (int, float)) and isinstance(py_val, float), key
+
+    args = ["compare", "--baseline", scores("b.json", base), "--variant", scores("v.json", var)]
+    args += ["--target", str(opts["target"]), *(["--paired"] if opts.get("paired") else [])]
+    js_cli, py_cli = run_both([*args, "--json"])
+    assert js_cli.returncode == py_cli.returncode == 0, (js_cli.stderr, py_cli.stderr)
+    for out in (js_cli.stdout, py_cli.stdout):
+        assert {k for k, v in json.loads(out).items() if v is None} & UNDEFINED == nulls
+    # Byte-identical JSON, apart from computed floats (ciLo, ciHi, p, effect when
+    # defined), which the CLI contract holds to 1e-9 and can differ in the last digits.
+    computed = UNDEFINED - nulls
+
+    def stable(text: str) -> list[str]:
+        return [line for line in text.splitlines() if line.strip().split('":')[0].strip('"') not in computed]
+
+    assert stable(js_cli.stdout) == stable(py_cli.stdout)
+    if nulls == UNDEFINED:
+        assert js_cli.stdout == py_cli.stdout
+    text_js, text_py = run_both(args)
+    assert text_js.stdout == text_py.stdout
 
 
 @pytest.mark.parametrize(
@@ -242,6 +313,8 @@ def test_cli_compare_parity(scores, label, base, var, opts, as_json):
     js, py = run_both(args)
     assert js.returncode == py.returncode, (js.stderr, py.stderr)
     expected_exit = {"improved": 0, "no_change": 0, "regressed": 1, "cant_tell": 3}[EXPECTED[label][0]]
+    if EXPECTED[label][0] != "regressed" and _py_verdict(base, var, opts).constant_arm is not None:
+        expected_exit = 3  # --gate holds on a constant arm; see test_cli_gate_holds_on_a_constant_arm
     assert py.returncode == expected_exit
     if as_json:
         # Same keys in the same order, same layout. Computed floats may differ
@@ -262,6 +335,43 @@ def test_cli_compare_parity(scores, label, base, var, opts, as_json):
         assert len(js.stdout.splitlines()) == len(py.stdout.splitlines())
     else:
         assert js.stdout == py.stdout
+
+
+FLAT = [0.8] * 5
+UP = [0.86, 0.84, 0.88, 0.85, 0.87]
+DOWN = [0.74, 0.76, 0.72, 0.75, 0.73]
+
+
+@pytest.mark.parametrize(
+    "base,var,call,code",
+    [
+        (FLAT, UP, "IMPROVED.", 3),
+        (FLAT, [0.8, 0.81, 0.79, 0.8, 0.8], "NO CHANGE.", 3),
+        (FLAT, DOWN, "REGRESSED.", 1),
+        (DOWN, FLAT, "IMPROVED.", 3),
+        (UP, FLAT, "REGRESSED.", 1),
+    ],
+    ids=[
+        "constant baseline, improved",
+        "constant baseline, no change",
+        "constant baseline, regressed",
+        "constant variant, improved",
+        "constant variant, regressed",
+    ],
+)
+def test_cli_gate_holds_on_a_constant_arm(scores, base, var, call, code):
+    """A constant arm is a ceiling or a broken harness, and the text says to
+    check which before trusting the verdict. A gate cannot check, so --gate
+    exits 3 unless the verdict is regressed (exit 1). The verdict and the text
+    are the same as without --gate."""
+    args = ["compare", "--baseline", scores("b.json", base), "--variant", scores("v.json", var), "--target", "0.05"]
+    js, py = run_both([*args, "--gate"])
+    assert js.returncode == py.returncode == code, (js.stderr, py.stderr)
+    assert js.stdout == py.stdout
+    assert f"\n{call} " in py.stdout, py.stdout
+    plain_js, plain_py = run_both(args)
+    assert plain_js.returncode == plain_py.returncode == 0
+    assert plain_js.stdout == plain_py.stdout == py.stdout
 
 
 def test_cli_rounding_tie_matches_to_fixed(scores):
@@ -318,8 +428,89 @@ def test_cli_reads_stdin(scores):
             "1",
         ],
         lambda s: ["power", "--std", "1", "--target", "0.5", "--json"],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", WELCH_BASE[:4]),
+            "--variant",
+            s("v.json", [83.9, 81.2, 86.0, 84.7]),
+            "--target",
+            "3",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", WELCH_BASE[:6]),
+            "--variant",
+            s("v.json", [70, 60, 80, 50]),
+            "--target",
+            "3",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", WELCH_BASE[:4]),
+            "--variant",
+            s("v.json", [83.9, 81.2, 86.0, 84.7]),
+            "--target",
+            "3",
+            "--paired",
+        ],
+        lambda s: ["power", "--sd-diff", "0", "--target", "3"],
+        lambda s: ["power", "--baseline", s("b.json", [0.8] * 5), "--target", "0.03"],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", [0.8] * 5),
+            "--variant",
+            s("v.json", [0.8] * 5),
+            "--target",
+            "0.03",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", [0.8] * 5),
+            "--variant",
+            s("v.json", [0.84, 0.79, 0.86, 0.83, 0.81]),
+            "--target",
+            "0.03",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", [0.84, 0.79, 0.86, 0.83, 0.81]),
+            "--variant",
+            s("v.json", [0.8] * 5),
+            "--target",
+            "0.03",
+        ],
+        lambda s: [
+            "power",
+            "--baseline",
+            s("b.json", {"a": 1, "b": 2}),
+            "--variant",
+            s("v.json", {"a": 2, "b": 3}),
+            "--target",
+            "1",
+        ],
     ],
-    ids=["std", "sd-diff", "baseline file", "paired pilot", "json"],
+    ids=[
+        "std",
+        "sd-diff",
+        "baseline file",
+        "paired pilot",
+        "json",
+        "two arrays are independent runs",
+        "two arrays, unequal n and spread",
+        "two arrays with --paired",
+        "zero sd-diff",
+        "constant baseline",
+        "two-arm pilot with no spread",
+        "two-arm pilot, constant baseline",
+        "two-arm pilot, constant variant",
+        "paired pilot with no spread",
+    ],
 )
 def test_cli_power_parity(scores, args_fn):
     args = args_fn(scores)
@@ -328,6 +519,42 @@ def test_cli_power_parity(scores, args_fn):
     assert js.stdout == py.stdout
     if "--json" in args:
         assert json.loads(py.stdout)["needed"] == 64
+
+
+@pytest.mark.parametrize(
+    "pilot_base,pilot_var,target",
+    [
+        (WELCH_BASE[:4], [83.9, 81.2, 86.0, 84.7], 3),
+        (WELCH_BASE[:6], [70, 60, 80, 50], 3),
+        (WELCH_BASE, [x + 1 for x in WELCH_BASE[:5]], 1),
+    ],
+    ids=["equal n", "noisier variant, unequal n", "unequal n"],
+)
+def test_cli_power_two_arm_pilot_is_the_power_boundary(scores, pilot_base, pilot_var, target):
+    """Two arrays size independent runs from sqrt((sd_b^2 + sd_v^2) / 2). At the
+    n per arm both CLIs give, a two-sample t-test with the pilot's two spreads
+    (standard error sqrt((sd_b^2 + sd_v^2) / n), df 2n - 2, as required_n
+    assumes) reaches 80% power under the noncentral t (scipy); at n - 1 it
+    does not. Checks the design choice against ground truth, not just parity."""
+    args = ["power", "--baseline", scores("b.json", pilot_base), "--variant", scores("v.json", pilot_var)]
+    js, py = run_both([*args, "--target", str(target), "--json"])
+    js_out, py_out = json.loads(js.stdout), json.loads(py.stdout)
+    assert js_out["design"] == py_out["design"] == "welch"
+    assert js_out["needed"] == py_out["needed"]
+    var_sum = statistics.variance(pilot_base) + statistics.variance(pilot_var)
+    assert py_out["spread"] == pytest.approx(math.sqrt(var_sum / 2), rel=EXACT)
+    assert js_out["spread"] == pytest.approx(py_out["spread"], rel=EXACT)
+
+    def power(n: int) -> float:
+        df = 2 * n - 2
+        nc = target / math.sqrt(var_sum / n)
+        tc = sp.t.ppf(0.975, df)
+        return sp.nct.sf(tc, df, nc) + sp.nct.sf(tc, df, -nc)
+
+    n = py_out["needed"]
+    assert n > 3
+    assert power(n) >= 0.80
+    assert power(n - 1) < 0.80
 
 
 @pytest.mark.parametrize(
@@ -394,6 +621,24 @@ def test_cli_power_parity(scores, args_fn):
         (lambda s: ["frobnicate"], None),
         (lambda s: ["power", "--target", "1"], None),
         (lambda s: ["compare", "--nope"], None),
+        (
+            lambda s: [
+                "power",
+                "--baseline",
+                s("b.json", [1, 2, 3]),
+                "--variant",
+                s("v.json", [1, 2]),
+                "--target",
+                "1",
+                "--paired",
+            ],
+            None,
+        ),
+        (lambda s: ["power", "--baseline", s("b.json", [1]), "--variant", s("v.json", [1, 2]), "--target", "1"], None),
+        (
+            lambda s: ["power", "--baseline", s("b.json", [1, 2]), "--variant", s("v.json", {"a": 1}), "--target", "1"],
+            None,
+        ),
     ],
     ids=[
         "missing target",
@@ -407,6 +652,9 @@ def test_cli_power_parity(scores, args_fn):
         "unknown command",
         "power without spread",
         "unknown flag",
+        "power --paired pilot, unequal lengths",
+        "power pilot arm too short",
+        "power pilot, array and object",
     ],
 )
 def test_cli_usage_errors_exit_2_in_both(scores, args_fn, stdin):

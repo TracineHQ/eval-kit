@@ -75,7 +75,8 @@ class WelchResult:
 
 @dataclass
 class VerdictResult:
-    """The decision from verdict(). shift is variant minus baseline."""
+    """The decision from verdict(). shift is variant minus baseline. None
+    marks what the data cannot define; see verdict()."""
 
     verdict: Literal["improved", "regressed", "no_change", "cant_tell"]
     reason: Literal["significant", "below_target", "within_target", "underpowered", "zero_spread"]
@@ -83,10 +84,10 @@ class VerdictResult:
     target: float
     lower_is_better: bool
     shift: float
-    ci_lo: float
-    ci_hi: float
-    p: float
-    effect: float
+    ci_lo: float | None
+    ci_hi: float | None
+    p: float | None
+    effect: float | None
     effect_name: Literal["glassD", "dz"]
     n_baseline: int
     n_variant: int
@@ -174,6 +175,8 @@ def welch_t_test(a: Sequence[float], b: Sequence[float]) -> WelchResult | None:
 
     Glass's delta sentinel when baseline std is 0: 99 (not inf) so the
     result is JSON-serializable. 0 when both groups are identical.
+    verdict() reports None instead of either sentinel, and instead of p
+    when neither group has spread.
     """
     sa = descriptive_stats(a)
     sb = descriptive_stats(b)
@@ -233,9 +236,11 @@ def paired_t_test(a: Sequence[float], b: Sequence[float]) -> PairedResult | None
 
     Uses scipy.stats.ttest_rel for t and p. Effect size is Cohen's dz
     (|mean difference| / std of differences), with sentinel 99 when every
-    difference is identical and nonzero. diff is mean(a - b), so positive
-    means the variant scored lower. Returns None when the sequences differ
-    in length or hold fewer than 2 items.
+    difference is identical and nonzero (0 when the arms are identical),
+    with p 0 (or 1). verdict() reports dz, p and the CI as None there
+    instead. diff is mean(a - b), so positive means the variant scored
+    lower. Returns None when the sequences differ in length or hold fewer
+    than 2 items.
     """
     if len(a) != len(b) or len(a) < 2:
         return None
@@ -425,8 +430,17 @@ def verdict(
     (slightly low, by about 1e-8 relative); inf when the target is too small
     for the spread to size at all. For planning a run before collecting
     data, use required_n (80% power to detect a target-sized shift), which is
-    smaller. Returns None for invalid input: fewer than 2 values per arm,
-    mismatched lengths when paired, or a target that is not a positive number.
+    smaller.
+
+    What the data cannot define is None, not a placeholder. effect is None
+    with no spread to scale it by: reason zero_spread (either design), or a
+    constant baseline under Glass's delta. A constant variant leaves the
+    baseline std as the scale, so effect stays a number there. ci_lo, ci_hi
+    and p are None for reason zero_spread. The low-level welch_t_test and
+    paired_t_test keep their 99 / 0 sentinels.
+
+    Returns None for invalid input: fewer than 2 values per arm, mismatched
+    lengths when paired, or a target that is not a positive number.
     """
     if not (isfinite(target) and target > 0):
         return None
@@ -481,6 +495,8 @@ def verdict(
     else:
         result, reason = "cant_tell", "underpowered"
 
+    # None, not the t-tests' sentinels, for what this data cannot define.
+    no_effect = flat or constant_arm == "baseline"
     return VerdictResult(
         verdict=result,  # type: ignore[arg-type]
         reason=reason,  # type: ignore[arg-type]
@@ -488,10 +504,10 @@ def verdict(
         target=target,
         lower_is_better=lower_is_better,
         shift=shift,
-        ci_lo=shift - margin,
-        ci_hi=shift + margin,
-        p=r.p,
-        effect=effect,
+        ci_lo=None if flat else shift - margin,
+        ci_hi=None if flat else shift + margin,
+        p=None if flat else r.p,
+        effect=None if no_effect else effect,
         effect_name=effect_name,  # type: ignore[arg-type]
         n_baseline=len(baseline),
         n_variant=len(variant),

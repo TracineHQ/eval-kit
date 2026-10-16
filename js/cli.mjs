@@ -14,7 +14,7 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { stats, pairedTTest, requiredN, requiredNPaired, verdict } from './lib/stats.mjs';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 // Exit codes. Outcome codes apply only with --gate, so plain analysis
 // never fails a build.
@@ -34,7 +34,12 @@ Examples:
 
 compare   Test a variant against a baseline and give a verdict:
           improved, regressed, no_change, or cant_tell.
-power     How many runs per arm (or items, with --paired) to detect --target.
+power     How many runs per arm (or items, when paired) to detect --target.
+          Sizes from --std, --sd-diff, or pilot scores. A --baseline pilot
+          alone uses its std. With --variant too, power reads the design the
+          way compare does: independent runs use the pooled std of both arms,
+          sqrt((sd1^2 + sd2^2) / 2); paired items use the std of their
+          differences. A spread of 0 warns: the n is the minimum, not a plan.
 
 Input files are JSON. An array of numbers is one score per run, compared
 with Welch's t-test. An object of {"item id": score} pairs items across the
@@ -43,7 +48,7 @@ Use - to read one of the files from stdin.
 
 Options:
   --baseline FILE     Baseline scores
-  --variant FILE      Variant scores (compare; paired power pilot)
+  --variant FILE      Variant scores (compare; two-arm power pilot)
   --target N          Smallest shift worth acting on, in score units. Required.
                       Pick it before looking at results.
   --paired            Pair arrays by index (objects always pair by id)
@@ -51,12 +56,13 @@ Options:
   --std N             power: baseline standard deviation, instead of --baseline
   --sd-diff N         power --paired: std of per-item differences
   --json              Machine-readable output
-  --gate              compare: exit 1 on regressed, 3 on cant_tell
+  --gate              compare: exit 1 on regressed; 3 on cant_tell, or when
+                      one arm is constant (a ceiling or a broken harness)
   -h, --help          Show this help
   --version           Show the version
 
 Exit codes: 0 ok, 1 regressed (--gate), 2 usage or input error,
-3 cant_tell (--gate).
+3 cant_tell or a constant arm (--gate).
 `;
 
 class UsageError extends Error {}
@@ -167,25 +173,34 @@ const pText = (p) => (p < 0.001 ? '< 0.001' : fixed(p, 3));
 function compareText(v, sa, sb) {
   const unit = v.design === 'paired' ? 'items' : 'runs per arm';
   const design = v.design === 'paired' ? 'paired t-test, same items in both arms' : "Welch's t-test, independent runs";
+  // verdict() gives null for what the data cannot define. zero_spread: no
+  // spread to estimate a CI, p, or effect size from, so all four are null. A
+  // constant baseline: Glass's delta has no scale, so effect alone is null.
+  let effect;
+  if (v.reason === 'zero_spread') effect = `undefined (no spread in ${v.design === 'paired' ? 'the item differences' : 'either arm'})`;
+  else if (v.effect === null) effect = 'off-scale (the baseline has no spread)';
+  else effect = fixed(v.effect, 2);
+  const ci = v.ciLo === null || v.ciHi === null ? 'undefined' : `[${signed(v.ciLo, 2)}, ${signed(v.ciHi, 2)}]`;
+  const p = v.p === null ? 'undefined' : pText(v.p);
   const lines = [
     `eval-kit compare: ${design}`,
     `  baseline  n=${v.nBaseline}  mean ${fixed(sa.mean, 2)}`,
     `  variant   n=${v.nVariant}  mean ${fixed(sb.mean, 2)}`,
-    `  shift     ${signed(v.shift, 2)}  95% CI [${signed(v.ciLo, 2)}, ${signed(v.ciHi, 2)}]`,
-    `  p         ${pText(v.p)}`,
-    `  ${v.effectName.padEnd(8)}  ${v.constantArm === 'baseline' ? 'off-scale (the baseline has no spread)' : fixed(v.effect, 2)}`,
+    `  shift     ${signed(v.shift, 2)}  95% CI ${ci}`,
+    `  p         ${p}`,
+    `  ${v.effectName.padEnd(8)}  ${effect}`,
     `  target    ${v.target} (${v.lowerIsBetter ? 'lower' : 'higher'} is better)`,
     '',
   ];
   const size = fixed(Math.abs(v.shift), 2);
   if (v.verdict === 'improved' || v.verdict === 'regressed') {
     const dir = v.shift > 0 ? 'higher' : 'lower';
-    lines.push(`${v.verdict.toUpperCase()}. The variant scores ${dir} by ${size}, p ${pText(v.p)}.`);
+    lines.push(`${v.verdict.toUpperCase()}. The variant scores ${dir} by ${size}, p ${p}.`);
     if (Math.abs(v.shift) < v.target) {
       lines.push(`The estimate is below the ${v.target}-point target, but the 95% CI reaches it.`);
     }
   } else if (v.reason === 'below_target') {
-    lines.push(`NO CHANGE at this target. The shift is real (p ${pText(v.p)}), but the 95% CI rules out a shift`);
+    lines.push(`NO CHANGE at this target. The shift is real (p ${p}), but the 95% CI rules out a shift`);
     lines.push(`of ${v.target} or more in either direction.`);
   } else if (v.verdict === 'no_change') {
     lines.push(`NO CHANGE. The 95% CI rules out a shift of ${v.target} or more in either direction.`);
@@ -222,7 +237,10 @@ function runCompare(opts) {
   const v = verdict(a, b, { target, paired, lowerIsBetter: opts['lower-is-better'] });
   const sa = stats(a);
   const sb = stats(b);
-  if (![sa.mean, sb.mean, v.shift, v.ciLo, v.ciHi, v.p, v.effect].every(Number.isFinite)) {
+  // ciLo, ciHi, p and effect are null where verdict() says the data cannot
+  // define them; any other non-finite value means the scores overflowed.
+  const finiteOrNull = (x) => x === null || Number.isFinite(x);
+  if (![sa.mean, sb.mean, v.shift].every(Number.isFinite) || ![v.ciLo, v.ciHi, v.p, v.effect].every(finiteOrNull)) {
     throw new UsageError('the scores are out of range for double precision; rescale them');
   }
   if (v.needed !== null && !(v.needed <= Number.MAX_SAFE_INTEGER)) throw new UsageError('--target is too small for this spread: the run count is too large to compute');
@@ -231,33 +249,65 @@ function runCompare(opts) {
 
   if (!opts.gate) return EXIT_OK;
   if (v.verdict === 'regressed') return EXIT_REGRESSED;
-  if (v.verdict === 'cant_tell') return EXIT_CANT_TELL;
+  // A constant arm is a ceiling or a broken harness, and the text says to check
+  // which before trusting the verdict. A gate cannot check, so it holds.
+  if (v.verdict === 'cant_tell' || v.constantArm !== null) return EXIT_CANT_TELL;
   return EXIT_OK;
+}
+
+// The common std at which requiredN's two-arm math (equal n per arm) gives
+// the standard error these two spreads give: sqrt((sdA^2 + sdB^2) / 2). It is
+// the usual pooled std when the pilot arms are the same size. Scaled so tiny
+// or huge spreads don't underflow or overflow when squared.
+function pooledStd(sdA, sdB) {
+  const scale = Math.max(sdA, sdB);
+  if (scale === 0) return 0;
+  const a = sdA / scale;
+  const b = sdB / scale;
+  return scale * Math.sqrt((a * a + b * b) / 2);
 }
 
 function runPower(opts) {
   const target = parseTarget(opts.target);
   let spread;
   let paired = opts.paired;
+  let what = 'baseline std';
+  let constant = null; // what had no spread, for the warning
   if (opts.std !== undefined) {
     if (paired) throw new UsageError('--std sizes independent runs; for --paired use --sd-diff');
     spread = parseNonNegative(opts.std, '--std');
+    if (spread === 0) constant = 'A std of 0 means every run scores the same';
   } else if (opts['sd-diff'] !== undefined) {
     spread = parseNonNegative(opts['sd-diff'], '--sd-diff');
     paired = true;
+    if (spread === 0) constant = 'An sd of 0 means every item moves by the same amount';
   } else if (opts.baseline && opts.variant) {
-    const { a, b } = align(readScores(opts.baseline), readScores(opts.variant), true);
-    const pilot = pairedTTest(a, b);
-    if (!pilot) throw new UsageError('the paired pilot needs at least 2 items');
-    spread = pilot.sdDiff;
-    paired = true;
+    // Pair exactly when compare would: objects by id, arrays only with --paired.
+    const pilot = align(readScores(opts.baseline), readScores(opts.variant), paired);
+    paired = pilot.paired;
+    if (paired) {
+      const r = pairedTTest(pilot.a, pilot.b);
+      if (!r) throw new UsageError('the paired pilot needs at least 2 items');
+      spread = r.sdDiff;
+      if (spread === 0) constant = 'Every item moved by exactly the same amount';
+    } else {
+      if (pilot.a.length < 2 || pilot.b.length < 2) throw new UsageError('each arm needs at least 2 scores');
+      const sa = stats(pilot.a);
+      const sb = stats(pilot.b);
+      spread = pooledStd(sa.std, sb.std);
+      what = 'pooled std';
+      if (spread === 0) constant = 'Every run in both arms scored the same';
+      else if (sa.std === 0) constant = `Every baseline run scored the same (${fixed(sa.mean, 2)})`;
+      else if (sb.std === 0) constant = `Every variant run scored the same (${fixed(sb.mean, 2)})`;
+    }
   } else if (opts.baseline) {
     if (paired) throw new UsageError('--paired power needs --sd-diff, or --baseline and --variant from a pilot');
     const s = stats(readScores(opts.baseline).values);
     if (!s || s.n < 2) throw new UsageError('the baseline needs at least 2 scores');
     spread = s.std;
+    if (spread === 0) constant = `Every baseline run scored the same (${fixed(s.mean, 2)})`;
   } else {
-    throw new UsageError('power needs --std, --sd-diff, or --baseline (and --variant for a paired pilot)');
+    throw new UsageError('power needs --std, --sd-diff, or a pilot: --baseline, optionally with --variant');
   }
 
   const needed = paired ? requiredNPaired(spread, target) : requiredN(spread, target);
@@ -265,11 +315,20 @@ function runPower(opts) {
   const design = paired ? 'paired' : 'welch';
   if (opts.json) {
     console.log(JSON.stringify({ design, target, spread, needed }, null, 2));
-  } else {
-    const unit = paired ? 'items' : 'runs per arm';
-    const what = paired ? 'sd of differences' : 'baseline std';
-    console.log(`${needed} ${unit} to detect a ${target}-point shift (${what} ${fixed(spread, 2)}, 80% power, alpha 0.05)`);
+    return EXIT_OK;
   }
+  const unit = paired ? 'items' : 'runs per arm';
+  if (paired) what = 'sd of differences';
+  const lines = [`${needed} ${unit} to detect a ${target}-point shift (${what} ${fixed(spread, 2)}, 80% power, alpha 0.05)`];
+  if (constant) {
+    lines.push(`${constant}. That is ${paired ? 'usually' : 'a ceiling or'} a broken harness;`);
+    lines.push(
+      spread === 0
+        ? `check ${paired ? 'it' : 'which'} first. With no spread to size from, ${needed} is the minimum, not a plan.`
+        : 'check which before trusting this number.',
+    );
+  }
+  console.log(lines.join('\n'));
   return EXIT_OK;
 }
 

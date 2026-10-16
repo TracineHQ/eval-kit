@@ -7,10 +7,13 @@ run both bindings against identical vectors and assert agreement.
 
 from __future__ import annotations
 
+import json
 import math
+from dataclasses import asdict
 
 import pytest
 
+from eval_kit.cli import JSON_KEYS, main
 from eval_kit.stats import (
     approx_p_value,
     descriptive_stats,
@@ -331,6 +334,34 @@ def test_verdict_tests_one_constant_arm_and_names_it():
     assert verdict(BASE, [x + 1 for x in BASE], 3).constant_arm is None
 
 
+def test_verdict_reports_the_effect_as_none_when_there_is_no_spread_to_scale_it_by():
+    # Regression: 0.1.x reported Glass's delta sentinel, 99 (or 0), as the effect.
+    base = verdict([0.8, 0.8, 0.8, 0.8, 0.8], [0.84, 0.79, 0.86, 0.83, 0.81], 0.03)
+    assert base.constant_arm == "baseline"
+    assert base.effect is None
+    assert all(isinstance(x, float) and math.isfinite(x) for x in [base.ci_lo, base.ci_hi, base.p])
+    # Equal means gave the 0 sentinel, which is no more an effect size than 99.
+    assert verdict([5, 5, 5], [4, 5, 6], 1).effect is None
+    # A constant variant leaves the baseline std as the scale, so the effect stays a number.
+    vari = verdict([0.84, 0.79, 0.86, 0.83, 0.81], [0.8, 0.8, 0.8, 0.8, 0.8], 0.03)
+    assert vari.constant_arm == "variant"
+    assert vari.effect is not None and math.isfinite(vari.effect) and vari.effect > 0
+
+
+def test_verdict_reports_the_ci_p_and_effect_as_none_with_no_spread_at_all():
+    # Regression: 0.1.x reported placeholders: ci_lo = ci_hi = shift, p 0 or 1, effect 99 or 0.
+    for a, b, paired in [
+        ([80, 80, 80], [85, 85, 85], False),
+        ([5, 5, 5], [5, 5, 5], False),
+        ([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], True),
+        ([1, 2, 3], [1, 2, 3], True),
+    ]:
+        v = verdict(a, b, 1, paired=paired)
+        assert v.reason == "zero_spread"
+        assert [v.ci_lo, v.ci_hi, v.p, v.effect, v.needed] == [None, None, None, None, None]
+        assert math.isfinite(v.shift)
+
+
 def test_verdict_refuses_on_zero_spread_instead_of_calling_it():
     v = verdict([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], 0.1, paired=True)
     assert v.verdict == "cant_tell"
@@ -350,3 +381,191 @@ def test_verdict_returns_none_for_invalid_input():
     assert verdict([1, 2, 3], [4, 5, 6], float("nan")) is None
     # No missing-target case: target is a required positional argument here,
     # so omitting it is a TypeError, not None. The JS options bag can omit it.
+
+
+# ---------------------------------------------------------------------------
+# CLI (eval_kit.cli). Mirrors the CLI tests in js/test/stats.test.mjs;
+# tests/cross-validation/ holds the two CLIs to the same bytes.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def score_file(tmp_path):
+    count = iter(range(1000))
+
+    def write(data) -> str:
+        path = tmp_path / f"scores-{next(count)}.json"
+        path.write_text(json.dumps(data))
+        return str(path)
+
+    return write
+
+
+@pytest.fixture
+def cli(capsys):
+    def run(*args: str) -> tuple[int, str, str]:
+        code = main(list(args))
+        out, err = capsys.readouterr()
+        return code, out, err
+
+    return run
+
+
+@pytest.fixture
+def cli_json(cli):
+    def run(*args: str) -> dict:
+        code, out, err = cli(*args, "--json")
+        assert code == 0, err
+        return json.loads(out)
+
+    return run
+
+
+PILOT_BASE = [80.1, 82.4, 79.0, 83.5]
+PILOT_VARI = [83.9, 81.2, 86.0, 84.7]
+
+
+def test_cli_power_sizes_two_arrays_as_independent_runs_from_the_pooled_std(cli, cli_json, score_file):
+    # Regression: 0.1.0 paired two arrays by index, answered in items, and
+    # refused unequal lengths with a --paired error nobody had asked for.
+    base, vari = score_file(PILOT_BASE), score_file(PILOT_VARI)
+    pooled = math.sqrt((descriptive_stats(PILOT_BASE).std ** 2 + descriptive_stats(PILOT_VARI).std ** 2) / 2)
+    r = cli_json("power", "--baseline", base, "--variant", vari, "--target", "3")
+    assert r["design"] == "welch"
+    assert r["spread"] == pytest.approx(pooled, abs=1e-12)
+    assert r["needed"] == required_n(pooled, 3)
+    _, out, _ = cli("power", "--baseline", base, "--variant", vari, "--target", "3")
+    assert out.startswith("9 runs per arm ") and "(pooled std 2.05," in out
+
+    code, out, err = cli("power", "--baseline", base, "--variant", score_file([*PILOT_VARI, 85.1]), "--target", "3")
+    assert code == 0, err
+    assert "runs per arm" in out
+    # The baseline-only path is unchanged.
+    assert cli("power", "--baseline", base, "--target", "3")[1] == (
+        "9 runs per arm to detect a 3-point shift (baseline std 2.06, 80% power, alpha 0.05)\n"
+    )
+
+
+def test_cli_power_pairs_a_pilot_only_when_compare_would(cli, cli_json, score_file):
+    base, vari = score_file(PILOT_BASE), score_file(PILOT_VARI)
+    by_index = cli_json("power", "--baseline", base, "--variant", vari, "--target", "3", "--paired")
+    assert by_index["design"] == "paired"
+    assert by_index["spread"] == paired_t_test(PILOT_BASE, PILOT_VARI).sd_diff
+    assert by_index["needed"] == required_n_paired(by_index["spread"], 3)
+
+    obj_base, obj_vari = score_file({"a": 40, "b": 55, "c": 62}), score_file({"c": 65, "a": 42, "b": 56})
+    for args in [
+        ["--baseline", base, "--variant", vari, "--target", "3"],
+        ["--baseline", base, "--variant", vari, "--target", "3", "--paired"],
+        ["--baseline", obj_base, "--variant", obj_vari, "--target", "1"],
+    ]:
+        assert cli_json("power", *args)["design"] == cli_json("compare", *args)["design"], args
+
+    code, _, err = cli("power", "--baseline", base, "--variant", score_file([1, 2, 3]), "--target", "3", "--paired")
+    assert code == 2
+    assert err == "eval-kit: --paired needs equal lengths (baseline 4, variant 3)\n"
+
+
+def test_cli_power_warns_when_there_is_no_spread_to_size_from(cli, cli_json, score_file):
+    minimum = "With no spread to size from, 2 is the minimum, not a plan."
+    flat = score_file([0.8, 0.8, 0.8, 0.8, 0.8])
+    cases = [
+        (["--std", "0"], "A std of 0 means every run scores the same. That is a ceiling or a broken harness;"),
+        (["--baseline", flat], "Every baseline run scored the same (0.80). That is a ceiling or a broken harness;"),
+        (
+            ["--baseline", flat, "--variant", flat],
+            "Every run in both arms scored the same. That is a ceiling or a broken harness;",
+        ),
+        (["--sd-diff", "0"], "An sd of 0 means every item moves by the same amount. That is usually a broken harness;"),
+        (
+            ["--baseline", score_file({"a": 1, "b": 2}), "--variant", score_file({"a": 2, "b": 3})],
+            "Every item moved by exactly the same amount. That is usually a broken harness;",
+        ),
+    ]
+    for args, cause in cases:
+        code, out, err = cli("power", *args, "--target", "3")
+        assert code == 0, err
+        lines = out.rstrip().split("\n")
+        assert lines[0].startswith(
+            ("2 runs per arm to detect a 3-point shift (", "2 items to detect a 3-point shift (")
+        )
+        assert lines[0].endswith(" 0.00, 80% power, alpha 0.05)")
+        assert lines[1] == cause
+        assert lines[2].endswith(minimum), lines[2]
+
+    # One constant arm in a two-arm pilot: sized from the other arm, with compare's warning.
+    _, out, _ = cli(
+        "power", "--baseline", flat, "--variant", score_file([0.84, 0.79, 0.86, 0.83, 0.81]), "--target", "0.03"
+    )
+    assert out.rstrip().split("\n")[1:] == [
+        "Every baseline run scored the same (0.80). That is a ceiling or a broken harness;",
+        "check which before trusting this number.",
+    ]
+    # --json keeps its shape; spread 0 is the signal there.
+    assert cli_json("power", "--std", "0", "--target", "3") == {
+        "design": "welch",
+        "target": 3,
+        "spread": 0,
+        "needed": 2,
+    }
+
+
+def test_cli_compare_prints_the_ci_p_and_effect_as_undefined_when_neither_arm_has_spread(cli, cli_json, score_file):
+    # Regression: 0.1.0 printed glassD 99.00, p < 0.001 and a zero-width CI here.
+    at80, at85 = score_file([80, 80, 80, 80, 80]), score_file([85, 85, 85, 85, 85])
+    for vari, shift in [(at85, "+5.00"), (at80, "+0.00")]:
+        code, out, _ = cli("compare", "--baseline", at80, "--variant", vari, "--target", "3", "--gate")
+        assert code == 3
+        assert f"  shift     {shift}  95% CI undefined\n  p         undefined\n" in out, out
+        assert "  glassD    undefined (no spread in either arm)\n" in out, out
+        assert "CAN'T TELL. Every run in both arms scored the same." in out, out
+    _, out, _ = cli("compare", "--baseline", at80, "--variant", at85, "--target", "3", "--paired")
+    assert "  dz        undefined (no spread in the item differences)\n" in out, out
+
+    # --json keeps its shape and reports what the data cannot define as null.
+    v = cli_json("compare", "--baseline", at80, "--variant", at85, "--target", "3")
+    assert list(v) == [JSON_KEYS.get(k, k) for k in asdict(verdict([1, 2], [3, 4], 1))]
+    fields = ["verdict", "reason", "shift", "ciLo", "ciHi", "p", "effect", "needed", "constantArm"]
+    assert [v[k] for k in fields] == ["cant_tell", "zero_spread", 5, None, None, None, None, None, None]
+    paired_json = cli_json("compare", "--baseline", at80, "--variant", at85, "--target", "3", "--paired")
+    assert [paired_json[k] for k in ["ciLo", "ciHi", "p", "effect"]] == [None, None, None, None]
+    # One constant baseline: a real CI and p; the effect is off-scale in text and null in --json.
+    one_args = [
+        "compare",
+        "--baseline",
+        score_file([0.8, 0.8, 0.8, 0.8, 0.8]),
+        "--variant",
+        score_file([0.84, 0.79, 0.86, 0.83, 0.81]),
+        "--target",
+        "0.03",
+    ]
+    _, out, _ = cli(*one_args)
+    assert "95% CI [-0.01, +0.06]\n  p         0.098\n  glassD    off-scale (the baseline has no spread)\n" in out, out
+    one_json = cli_json(*one_args)
+    assert one_json["effect"] is None
+    assert all(isinstance(one_json[k], float) for k in ["ciLo", "ciHi", "p"])
+
+
+def test_cli_gate_holds_on_a_constant_arm_unless_the_verdict_is_regressed(cli, score_file):
+    # Regression: 0.1.x exited 0 on an improved verdict over a constant baseline,
+    # while the text said to check the harness before trusting it.
+    flat = score_file([0.8, 0.8, 0.8, 0.8, 0.8])
+    up = score_file([0.86, 0.84, 0.88, 0.85, 0.87])
+    down = score_file([0.74, 0.76, 0.72, 0.75, 0.73])
+    near = score_file([0.8, 0.81, 0.79, 0.8, 0.8])
+    cases = [
+        ("constant baseline, improved", flat, up, "IMPROVED.", 3),
+        ("constant baseline, no change", flat, near, "NO CHANGE.", 3),
+        ("constant baseline, regressed", flat, down, "REGRESSED.", 1),
+        ("constant variant, improved", down, flat, "IMPROVED.", 3),
+        ("constant variant, regressed", up, flat, "REGRESSED.", 1),
+    ]
+    for label, base, vari, call, code in cases:
+        args = ["compare", "--baseline", base, "--variant", vari, "--target", "0.05"]
+        gated_code, gated_out, _ = cli(*args, "--gate")
+        assert gated_code == code, label
+        assert f"\n{call} " in gated_out, f"{label}: {gated_out}"
+        # Only the exit code changes: the verdict and the text are the same as without --gate.
+        plain_code, plain_out, _ = cli(*args)
+        assert plain_code == 0, label
+        assert plain_out == gated_out, label
