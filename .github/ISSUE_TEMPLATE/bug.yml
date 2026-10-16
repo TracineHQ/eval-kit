@@ -1,0 +1,59 @@
+name: Bug report
+description: A crash, a wrong exit code, bad output, or the two bindings disagreeing.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If a statistic looks wrong (a p-value, CI, effect size or n), use the
+        **Wrong number** template instead. Security problems go through
+        private reporting, not here: see SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: eval-kit version
+      description: Output of `eval-kit --version` or `node js/cli.mjs --version`. For a copied `stats.mjs`, the release or commit you copied it from.
+    validations:
+      required: true
+  - type: dropdown
+    id: binding
+    attributes:
+      label: Binding
+      description: The Claude Code skill runs the JS CLI.
+      options:
+        - JS CLI
+        - JS library
+        - Python CLI
+        - Python library
+    validations:
+      required: true
+  - type: input
+    id: runtime
+    attributes:
+      label: Node or Python version
+      description: Output of `node --version` or `python --version`.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Exact command
+      description: The command you ran, or the function call with its arguments.
+      render: shell
+    validations:
+      required: true
+  - type: textarea
+    id: data
+    attributes:
+      label: Minimal baseline and variant JSON
+      description: The smallest score files that reproduce it. Trim real data down; invented numbers that still fail are fine.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: expected-vs-actual
+    attributes:
+      label: Expected vs actual output and exit code
+      description: What you expected, what it printed, and the exit code (`echo $?`). `--help` lists what each exit code means.
+    validations:
+      required: true

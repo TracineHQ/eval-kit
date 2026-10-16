@@ -419,18 +419,31 @@ def test_readme_cli_example_is_real_output(tmp_path):
 
 
 def test_every_version_string_agrees():
-    """One release, one version: the plugin manifest, both packages, both
-    CLIs' --version, and the changelog's latest entry."""
+    """One release, one version: the plugin manifest, the marketplace manifest's
+    catalog and plugin entry, both packages, the Python lock file, both CLIs'
+    --version, the changelog's latest entry and its [Unreleased] compare link,
+    and CITATION.cff."""
+    changelog = (REPO / "CHANGELOG.md").read_text()
+    marketplace = json.loads((REPO / ".claude-plugin" / "marketplace.json").read_text())
     versions = {
         "plugin.json": json.loads((REPO / ".claude-plugin" / "plugin.json").read_text())["version"],
+        "marketplace.json metadata": marketplace["metadata"]["version"],
+        "marketplace.json plugin": marketplace["plugins"][0]["version"],
         "package.json": json.loads((REPO / "js" / "package.json").read_text())["version"],
         "pyproject.toml": re.search(r'^version = "(.+)"', (REPO / "python" / "pyproject.toml").read_text(), re.M)[1],
+        "uv.lock": re.search(
+            r'^\[\[package\]\]\nname = "eval-kit"\nversion = "(.+)"', (REPO / "python" / "uv.lock").read_text(), re.M
+        )[1],
         "__init__.py": re.search(
             r'__version__ = "(.+)"', (REPO / "python" / "src" / "eval_kit" / "__init__.py").read_text()
         )[1],
         "js --version": subprocess.run(
             ["node", str(JS_CLI), "--version"], capture_output=True, text=True
         ).stdout.strip(),
-        "CHANGELOG.md": re.search(r"^## \[(\d[^\]]*)\]", (REPO / "CHANGELOG.md").read_text(), re.M)[1],
+        "CHANGELOG.md": re.search(r"^## \[(\d[^\]]*)\]", changelog, re.M)[1],
+        "CHANGELOG.md [Unreleased] link": re.search(
+            r"^\[Unreleased\]: https://github\.com/TracineHQ/eval-kit/compare/v(.+)\.\.\.HEAD$", changelog, re.M
+        )[1],
+        "CITATION.cff": re.search(r"^version: (.+)$", (REPO / "CITATION.cff").read_text(), re.M)[1],
     }
     assert len(set(versions.values())) == 1, versions

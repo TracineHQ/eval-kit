@@ -6,6 +6,13 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Issue and pull request templates, Dependabot for actions and the Python lock file, and CITATION.cff.
+- A per-repo marketplace manifest (`tracinehq`), with a CI job that installs the plugin from it on Linux
+  and macOS, and a standalone install line in the README.
+- The version check also covers python/uv.lock, the changelog compare link, CITATION.cff and the
+  marketplace manifest.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed
