@@ -1,0 +1,68 @@
+name: Plugin install
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  local-marketplace:
+    name: Local manifest install (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+
+      # Pinned to match ci.yml; bump both together.
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code@2.1.285
+
+      - run: claude --version
+
+      - name: Validate marketplace manifest
+        run: claude plugin validate ./.claude-plugin/marketplace.json
+
+      - name: Add this checkout as a local marketplace
+        run: claude plugin marketplace add ./
+
+      - name: Install eval-kit from the local marketplace
+        run: claude plugin install eval-kit@tracinehq
+
+      # Same assertions as TracineHQ/plugins CI. The skill loads from the root
+      # SKILL.md, so a clean install has to report exactly one skill.
+      - name: Assert the plugin loaded with its skill
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT=$(claude plugin list)
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -q "eval-kit@tracinehq" || { echo "FAIL: eval-kit not in plugin list"; exit 1; }
+          if echo "$OUTPUT" | grep -q "failed to load"; then
+            echo "FAIL: eval-kit reported 'failed to load'"
+            exit 1
+          fi
+          if echo "$OUTPUT" | grep -q "Status: ✘"; then
+            echo "FAIL: eval-kit reported a non-enabled status"
+            exit 1
+          fi
+          DETAILS=$(claude plugin details eval-kit@tracinehq)
+          echo "$DETAILS"
+          echo "$DETAILS" | grep -q "Skills (1)" || { echo "FAIL: eval-kit skill missing"; exit 1; }
+          echo "OK: eval-kit installed from the local manifest, enabled, with its skill."

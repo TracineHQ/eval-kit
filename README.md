@@ -35,6 +35,8 @@ instead of passing or failing it. Reproduce the table with `node js/examples/ver
 /plugin install eval-kit@tracine
 ```
 
+Standalone, as a backup: `/plugin marketplace add TracineHQ/eval-kit`, then `/plugin install eval-kit@tracinehq`.
+
 **CLI and JS library (Node 20+, no dependencies):** run in place from a clone.
 
 ```bash

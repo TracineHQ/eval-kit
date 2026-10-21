@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "tracinehq",
+  "owner": { "name": "TracineHQ", "url": "https://github.com/TracineHQ" },
+  "metadata": {
+    "description": "TracineHQ's Claude Code plugin catalog.",
+    "version": "0.2.0"
+  },
+  "plugins": [
+    {
+      "name": "eval-kit",
+      "version": "0.2.0",
+      "description": "Did the eval get better, or is that noise? A Claude Code skill and CLI that sizes the runs before you test, gates CI on the verdict, and says \"can't tell yet\" when the data can't support a call. Zero-dependency JS and scipy-backed Python, cross-validated in CI. Beta.",
+      "author": { "name": "Anthony Ledesma", "url": "https://github.com/TracineHQ" },
+      "source": "./",
+      "category": "developer-tools",
+      "homepage": "https://github.com/TracineHQ/eval-kit"
+    }
+  ]
+}

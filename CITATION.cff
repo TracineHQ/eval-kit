@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use eval-kit, please cite it as below."
+type: software
+title: eval-kit
+abstract: "A Claude Code skill and CLI that sizes the runs before you test, gates CI on the verdict, and says \"can't tell yet\" when the data can't support a call."
+authors:
+  - family-names: Ledesma
+    given-names: Anthony
+version: 0.2.0
+date-released: 2026-10-15
+license: Apache-2.0
+repository-code: "https://github.com/TracineHQ/eval-kit"
+keywords:
+  - llm
+  - evaluation
+  - statistics
+  - t-test
+  - power-analysis

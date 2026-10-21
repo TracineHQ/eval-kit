@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/TracineHQ/eval-kit/security/advisories/new
+    about: Report security problems privately through GitHub private vulnerability reporting. Do not open a public issue.
