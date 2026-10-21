@@ -595,9 +595,11 @@ def _parse_args(argv: Sequence[str]) -> Args:
     # A repeated value flag would silently keep its last value. Checked after
     # the loop, as parseArgs reports unknown options and missing values first;
     # names the flag whose second occurrence comes first.
-    for k, name in enumerate(given):
-        if name in given[:k]:
+    seen: set[str] = set()
+    for name in given:
+        if name in seen:
             raise UsageError(f"--{name} given more than once")
+        seen.add(name)
     return args
 
 
