@@ -13,7 +13,7 @@
 - [ ] Both bindings changed together (`js/lib/stats.mjs`, `python/src/eval_kit/stats.py`)
 - [ ] Both unit test files updated (`js/test/stats.test.mjs`, `python/tests/test_stats.py`)
 - [ ] Cross-validation entry added or updated (`tests/cross-validation/`)
-- [ ] CLI output byte-identical across `js/cli.mjs` and `python/src/eval_kit/cli.py`
+- [ ] Both CLIs print the same text, errors and exit codes, and `--json` floats agree to 1e-9
 - [ ] CHANGELOG.md entry under `[Unreleased]`
 - [ ] 1e-9 cross-validation tolerance not widened
 - [ ] Eval prompts and their answer keys updated together (`evals/`)
