@@ -8,7 +8,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 - Python 3.14 in the supported versions. CI now runs it, Node 26, and the cross-validation
-  suite on Python 3.10, Python 3.14 and macOS.
+  suite on Python 3.14 and macOS.
+
+### Changed
+- The Python package requires Python 3.12 or later, and numpy 1.26 or later, the first
+  numpy release with Python 3.12 wheels. Python 3.10 and 3.11 are no longer supported.
+- The CLI and JS library require Node 22 or later. Node 20 reached end of life on 2026-04-30.
 
 ### Fixed
 - The Python package allowed scipy 1.11 and 1.12, whose t quantile at small df differs from
