@@ -6,6 +6,12 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `verdict()` in both bindings, and so `compare` and `compare --json`, reports `spread`: the sd
+  of the per-item differences (paired) or the pooled std of both arms (Welch), the value
+  `power --sd-diff` or `--std` takes to size the next run. The text output prints it on a
+  `spread` line.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed

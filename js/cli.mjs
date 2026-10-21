@@ -189,6 +189,7 @@ function compareText(v, sa, sb) {
     `  shift     ${signed(v.shift, 2)}  95% CI ${ci}`,
     `  p         ${p}`,
     `  ${v.effectName.padEnd(8)}  ${effect}`,
+    `  spread    ${fixed(v.spread, 2)} (${v.design === 'paired' ? 'sd of differences' : 'pooled std'})`,
     `  target    ${v.target} (${v.lowerIsBetter ? 'lower' : 'higher'} is better)`,
     '',
   ];
