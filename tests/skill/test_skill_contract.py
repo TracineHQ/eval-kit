@@ -186,10 +186,9 @@ def test_prompt_grants_the_tools_the_case_needs(case):
 
 def test_suite_covers_the_skill_rules():
     """Each rule in SKILL.md has a case: underpowered, pairing, sizing,
-    a constant baseline, missing target, lower-is-better, out of scope, and a
-    prompt the skill must ignore. Then the rules from dogfooding: more items
-    than exist, repeats per item, topping up, both arms constant, and a
-    near-miss prompt the skill must ignore."""
+    a constant baseline, missing target, lower-is-better, out of scope, more
+    items than exist, repeats per item, topping up, both arms constant, an
+    unrelated prompt the skill must ignore, and a near miss it must ignore."""
     expected = {
         "underpowered-improvement", "per-item-pairing", "size-before-running", "constant-baseline",
         "asks-for-target", "lower-is-better", "pass-fail-out-of-scope", "ignores-unrelated-request",
