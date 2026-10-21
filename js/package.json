@@ -12,7 +12,10 @@
   },
   "files": [
     "lib",
-    "cli.mjs"
+    "cli.mjs",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
   "scripts": {
     "test": "node --test test/*.test.mjs"

@@ -6,6 +6,11 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- The wheel, sdist and npm package now carry LICENSE and NOTICE, as Apache-2.0 asks of
+  redistributions. The Python package ships py.typed, and both package READMEs use absolute
+  links.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed
