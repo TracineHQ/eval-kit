@@ -144,9 +144,13 @@ Resolving it takes 16 runs per arm at the spread seen so far; you have 4.
   sized from the pooled std of both arms, `sqrt((sd_baseline^2 + sd_variant^2) / 2)`: at equal n
   per arm that gives the standard error the two spreads give, so a noisier variant raises the
   count instead of being assumed away. Objects keyed by item id, or arrays with `--paired`, are
-  paired items, sized from the std of their differences. A spread of 0 (a constant pilot, or
-  `--std 0`) still prints the minimum n, 2, with a warning that it is not a plan. In `--json`,
-  `spread: 0` is the signal.
+  paired items, sized from the std of their differences. A lone `--baseline` keyed by item id is
+  refused: per-item scores size the paired design, so add `--variant` from the same items, or give
+  `--sd-diff`. Give one spread source: `--std`, `--sd-diff`, or pilot files. The line names the
+  pilot size it sized from. A spread of 0 (a constant pilot, or `--std 0`) still prints the
+  minimum n, 2, with a warning that it is not a plan. In `--json`, `spread: 0` is the signal,
+  `nBaseline` and `nVariant` give the pilot size, and `constantArm` names a constant arm of a
+  two-array pilot.
 - **"Resolving it takes N"** in a `cant_tell` is a different, larger n: at the spread seen so
   far, the 95% CI at N is under half the target on each side, so it cannot span both no change
   and the target. Every verdict at N is a call.

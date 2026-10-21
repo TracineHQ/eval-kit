@@ -6,6 +6,19 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- The `power` line names the pilot size it sized from, and `power --json` adds `nBaseline`,
+  `nVariant` and `constantArm`.
+
+### Fixed
+- `power` sized a lone pilot keyed by item id as independent runs. It now refuses it and asks
+  for `--variant` or `--sd-diff`.
+- `power` ignored pilot files when `--std` or `--sd-diff` was also given, and `--std` beat
+  `--sd-diff`, silently. It now asks for one spread source.
+- A repeated value flag silently used its last value; both CLIs now refuse it. `compare`
+  refuses `--std` and `--sd-diff`, and `power` refuses `--gate`, instead of ignoring them.
+- `power` with both arms on stdin blamed the JSON; it now says only one can be `-`.
+
 ## [0.2.0] - 2026-10-15
 
 ### Changed
