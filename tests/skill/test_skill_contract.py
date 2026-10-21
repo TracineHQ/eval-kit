@@ -464,5 +464,5 @@ def test_public_copy_has_no_emdashes():
     """Public text writes -- or rewrites the sentence. evals/results/ is local run output."""
     files = [REPO / name for name in PUBLIC_COPY]
     files += [p for p in sorted(EVALS.rglob("*")) if p.is_file() and "results" not in p.relative_to(EVALS).parts]
-    found = [str(p.relative_to(REPO)) for p in files if "—" in p.read_text(encoding="utf-8")]
+    found = [str(p.relative_to(REPO)) for p in files if "\u2014" in p.read_text(encoding="utf-8")]
     assert not found, f"emdash in {found}"
