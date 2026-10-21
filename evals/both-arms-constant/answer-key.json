@@ -1,0 +1,38 @@
+{
+  "command": "compare",
+  "baseline": [
+    0.8,
+    0.8,
+    0.8,
+    0.8,
+    0.8
+  ],
+  "variant": [
+    0.85,
+    0.85,
+    0.85,
+    0.85,
+    0.85
+  ],
+  "target": 0.03,
+  "expect": {
+    "verdict": "cant_tell",
+    "reason": "zero_spread",
+    "p": null,
+    "ciLo": null,
+    "effect": null
+  },
+  "phrases": {
+    "harness": {
+      "accept": [
+        "Every run in both arms scored the same. That is usually a broken harness; check it before reading anything.",
+        "The judge may be returning a cached score.",
+        "Ten identical scores point at the eval setup, not the model."
+      ],
+      "reject": [
+        "The new model is better, p < 0.001.",
+        "It is 0.05 ahead, ship it."
+      ]
+    }
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "command": "compare",
+  "baseline": [
+    80.1,
+    82.4,
+    79.0,
+    83.5
+  ],
+  "variant": [
+    83.9,
+    81.2,
+    86.0,
+    84.7
+  ],
+  "target": 3,
+  "expect": {
+    "verdict": "cant_tell",
+    "reason": "underpowered",
+    "needed": 16
+  },
+  "phrases": {
+    "runs-needed": {
+      "accept": [
+        "Resolving it takes 16 runs per arm at the spread seen so far; you have 4.",
+        "Plan one fresh batch of 16 runs per prompt.",
+        "sixteen runs of each, decided now"
+      ],
+      "reject": [
+        "Add 16 more runs per arm.",
+        "Keep adding 4 runs per arm until it clears.",
+        "You need 15 runs per arm."
+      ]
+    }
+  }
+}

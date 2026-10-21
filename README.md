@@ -264,7 +264,7 @@ cd python && pytest ../tests/cross-validation/ -v
 cd python && pytest ../tests/skill/ -v
 
 # The skill, with Claude Code (makes real model calls)
-claude plugin eval . --allow-tools Write "Bash(node *)"
+claude plugin eval . --allow-tools Write "Bash(node *)" --no-publish
 ```
 
 All four suites run in CI on every push and pull request to main, along with a `claude plugin validate` manifest check.

@@ -15,6 +15,7 @@ varies run to run. This suite pins everything around it that can be pinned:
    the Claude Code skills reference) and only mentions flags and functions
    that exist.
 4. **README examples are real output.**
+5. **Public text has no emdashes.**
 
 Run (from repo root):
     cd python && pytest ../tests/skill/ -v
@@ -185,11 +186,14 @@ def test_prompt_grants_the_tools_the_case_needs(case):
 
 def test_suite_covers_the_skill_rules():
     """Each rule in SKILL.md has a case: underpowered, pairing, sizing,
-    zero spread, missing target, lower-is-better, out of scope, and a
-    prompt the skill must ignore."""
+    a constant baseline, missing target, lower-is-better, out of scope, more
+    items than exist, repeats per item, topping up, both arms constant, an
+    unrelated prompt the skill must ignore, and a near miss it must ignore."""
     expected = {
-        "underpowered-improvement", "per-item-pairing", "size-before-running", "zero-spread-harness",
+        "underpowered-improvement", "per-item-pairing", "size-before-running", "constant-baseline",
         "asks-for-target", "lower-is-better", "pass-fail-out-of-scope", "ignores-unrelated-request",
+        "paired-needs-more-items", "repeats-averaged-per-item", "top-up-runs",
+        "both-arms-constant", "ignores-single-run-summary",
     }  # fmt: skip
     assert expected <= set(CASES)
 
@@ -210,6 +214,13 @@ def test_prompt_shows_exactly_the_answer_key_data(case):
         if data is None:
             continue
         values = data.values() if isinstance(data, dict) else data
+        if "calls" in key:
+            # The prompt shows every call; the key holds each item's mean, as the CLI reads it.
+            calls = key["calls"][arm]
+            assert calls.keys() == data.keys(), f"{arm}: calls and scores name different items"
+            for item, mean in data.items():
+                assert round(sum(calls[item]) / len(calls[item]), 3) == mean, f"{arm} {item}: not the mean of its calls"
+            values = [c for item in calls.values() for c in item]
         wanted.update(float(v) for v in values)
         if isinstance(data, dict):
             for item in data:
@@ -254,12 +265,18 @@ def test_lower_is_better_case_discriminates(tmp_path):
         assert result[field] == value
 
 
-@pytest.mark.parametrize("case", [c for c in NUMERIC if "needed" in answer_key(c)["expect"]])
-def test_llm_rubric_numbers_match_the_answer_key(case):
-    """Rubrics that quote the answer must quote the CLI's answer."""
-    needed = answer_key(case)["expect"]["needed"]
+@pytest.mark.parametrize("case", NUMERIC)
+def test_llm_rubric_numbers_match_the_answer_key(case, tmp_path):
+    """Rubrics that quote the answer must quote the CLI's answer: the prompt's
+    numbers, the n it asks for (and both arms' total), and the size of the shift."""
+    key = answer_key(case)
     _, prompt = split_frontmatter(EVALS / case / "prompt.md")
-    allowed = {needed, 2 * needed} | set(numbers_in(prompt))
+    allowed = set(numbers_in(prompt))
+    if "needed" in key["expect"]:
+        allowed |= {key["expect"]["needed"], 2 * key["expect"]["needed"]}
+    shift = json.loads(js_cli(key, tmp_path, "--json").stdout).get("shift")
+    if shift is not None:
+        allowed.add(abs(round(shift, 2)))
     for name, (meta, body) in graders(case).items():
         if meta["type"] == "llm":
             stray = set(numbers_in(body)) - allowed
@@ -434,3 +451,18 @@ def test_every_version_string_agrees():
         "CHANGELOG.md": re.search(r"^## \[(\d[^\]]*)\]", (REPO / "CHANGELOG.md").read_text(), re.M)[1],
     }
     assert len(set(versions.values())) == 1, versions
+
+
+# ---------------------------------------------------------------------------
+# Public copy
+# ---------------------------------------------------------------------------
+
+PUBLIC_COPY = ["SKILL.md", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "python/README.md"]
+
+
+def test_public_copy_has_no_emdashes():
+    """Public text writes -- or rewrites the sentence. evals/results/ is local run output."""
+    files = [REPO / name for name in PUBLIC_COPY]
+    files += [p for p in sorted(EVALS.rglob("*")) if p.is_file() and "results" not in p.relative_to(EVALS).parts]
+    found = [str(p.relative_to(REPO)) for p in files if "\u2014" in p.read_text(encoding="utf-8")]
+    assert not found, f"emdash in {found}"
