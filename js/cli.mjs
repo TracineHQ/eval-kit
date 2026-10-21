@@ -99,7 +99,7 @@ const JSON_SPACE = new Set([' ', '\t', '\n', '\r']);
 // Returns the raw text of each key of a top-level object, in file order:
 // JSON.parse keeps only the last of a repeated key, so readScores checks them.
 const MAX_DEPTH = 64;
-function checkDepth(text, name) {
+function scanScoreText(text, name) {
   let depth = 0;
   let inString = false;
   let escaped = false;
@@ -156,7 +156,7 @@ function readScores(path) {
   } catch (err) {
     throw new UsageError(`cannot read ${name}: ${READ_ERRORS[err.code] ?? err.code ?? err.message}`);
   }
-  const rawKeys = checkDepth(text, name);
+  const rawKeys = scanScoreText(text, name);
   let data;
   try {
     data = JSON.parse(text);
