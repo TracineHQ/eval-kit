@@ -48,7 +48,7 @@ Examples:
 compare   Test a variant against a baseline and give a verdict:
           improved, regressed, no_change, or cant_tell.
 power     How many runs per arm (or items, when paired) to detect --target.
-          Sizes from --std, --sd-diff, or pilot scores. A --baseline pilot
+          Sizes from --std, --sd-diff, or pilot scores. A --baseline array
           alone uses its std. With --variant too, power reads the design the
           way compare does: independent runs use the pooled std of both arms,
           sqrt((sd1^2 + sd2^2) / 2); paired items use the std of their
