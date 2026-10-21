@@ -230,6 +230,7 @@ def test_welch_returns_null_for_undersized_groups():
         (2.5, 1.7, None),
         (16, 0.25, 64299),  # z seed overshoots, so the search steps down
         (0.03, 0.01, None),
+        (6.491892124788057, 0.028290668449373238, 826596),  # the bisection raises lo
     ],
 )
 def test_required_n_parity(std, delta, expected):
@@ -406,6 +407,24 @@ def test_js_p_value_matches_closed_forms_at_df_1_and_2(abs_t):
     df2 = 1 - abs_t / math.sqrt(2 + abs_t * abs_t)
     assert run_js("pValue", abs_t, 1) == pytest.approx(cauchy, rel=1e-12)
     assert run_js("pValue", abs_t, 2) == pytest.approx(df2, rel=1e-12)
+
+
+def test_p_value_and_t_critical_at_infinite_df():
+    """At infinite df both bindings fall back to the normal distribution.
+    JSON has no Infinity, so the payload spells df as 1e999, which JSON.parse
+    reads as Infinity."""
+
+    def js_at_infinite_df(fn: str, *args: float) -> Any:
+        payload = json.dumps({"fn": fn, "args": [*args, "DF"]}).replace('"DF"', "1e999")
+        proc = subprocess.run(["node", str(BRIDGE)], input=payload, capture_output=True, text=True, check=True)
+        return _decode(json.loads(proc.stdout))
+
+    p_exact = 2.0 * sp.norm.sf(1)
+    t_exact = sp.norm.ppf(0.975)
+    assert p_value(1, math.inf) == pytest.approx(p_exact, abs=EXACT)
+    assert js_at_infinite_df("pValue", 1) == pytest.approx(p_exact, abs=EXACT)
+    assert t_critical(math.inf) == pytest.approx(t_exact, abs=EXACT)
+    assert js_at_infinite_df("tCritical") == pytest.approx(t_exact, abs=EXACT)
 
 
 def test_approx_p_value_alias_parity():
