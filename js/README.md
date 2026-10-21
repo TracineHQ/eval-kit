@@ -1,6 +1,6 @@
 # eval-kit (JavaScript)
 
-Did the eval get better, or is that noise? The zero-dependency JS binding and CLI: Node 20+,
+Did the eval get better, or is that noise? The zero-dependency JS binding and CLI: Node 22+,
 Node built-ins only.
 
 ## Install
