@@ -172,7 +172,7 @@ test('requiredN() returns Infinity for zero delta', () => {
   assert.equal(requiredN(8, 0), Infinity);
 });
 
-test('requiredN() at std 1 sits on the exact boundary for mid-size d', () => {
+test('requiredN() at std 1 sits on the exact Welch boundary for mid-size d', () => {
   // requiredN's power at these n clears 0.80 by under 0.004, so a df off by
   // one (2n - 3 for 2n - 2) moves the answer up by one. Paired counts ride along.
   for (const [d, welch, paired] of [[1.06, 15, 10], [1.41, 9, 7], [1.64, 7, 6], [1.8, 6, 5]]) {
@@ -429,6 +429,12 @@ test('verdict() calls a paired improvement significant', () => {
   });
   assert.deepEqual([v.verdict, v.reason, v.needed], ['improved', 'significant', 10]);
   assert.ok(Math.abs(v.effect - 3) < 1e-12);
+});
+
+test('verdict() counts the paired items needed at df n - 1', () => {
+  // At df n the search would stop one item early, at 5.
+  const v = verdict([40, 55, 62, 70, 78], [41, 58, 64, 74, 80], { target: 2.75, paired: true });
+  assert.equal(v.needed, 6);
 });
 
 // ---------------------------------------------------------------------------

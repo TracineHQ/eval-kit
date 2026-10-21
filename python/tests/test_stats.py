@@ -184,7 +184,7 @@ def test_required_n_returns_inf_for_zero_delta():
     assert required_n(8, 0) == math.inf
 
 
-def test_required_n_at_std_1_sits_on_the_exact_boundary_for_mid_size_d():
+def test_required_n_at_std_1_sits_on_the_exact_welch_boundary_for_mid_size_d():
     # required_n's power at these n clears 0.80 by under 0.004, so a df off by
     # one (2n - 3 for 2n - 2) moves the answer up by one. Paired counts ride along.
     for d, welch, paired in [(1.06, 15, 10), (1.41, 9, 7), (1.64, 7, 6), (1.8, 6, 5)]:
@@ -433,6 +433,12 @@ def test_verdict_calls_a_paired_improvement_significant():
     v = verdict([40, 55, 62, 70, 78, 85, 91, 48, 66, 73], [42, 57, 63, 72, 80, 88, 92, 50, 69, 75], 1, paired=True)
     assert (v.verdict, v.reason, v.needed) == ("improved", "significant", 10)
     assert v.effect == pytest.approx(3, abs=1e-12)
+
+
+def test_verdict_counts_the_paired_items_needed_at_df_n_minus_1():
+    # At df n the search would stop one item early, at 5.
+    v = verdict([40, 55, 62, 70, 78], [41, 58, 64, 74, 80], 2.75, paired=True)
+    assert v.needed == 6
 
 
 # ---------------------------------------------------------------------------
