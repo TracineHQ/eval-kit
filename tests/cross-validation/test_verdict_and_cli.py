@@ -127,6 +127,7 @@ PY_FIELDS = {
     "nBaseline": "n_baseline",
     "nVariant": "n_variant",
     "needed": "needed",
+    "spread": "spread",
     "constantArm": "constant_arm",
 }
 
@@ -205,8 +206,9 @@ def test_undefined_stats_are_null_in_both_bindings_and_clis(scores, base, var, o
     for out in (js_cli.stdout, py_cli.stdout):
         assert {k for k, v in json.loads(out).items() if v is None} & UNDEFINED == nulls
     # Byte-identical JSON, apart from computed floats (ciLo, ciHi, p, effect when
-    # defined), which the CLI contract holds to 1e-9 and can differ in the last digits.
-    computed = UNDEFINED - nulls
+    # defined, and spread), which the CLI contract holds to 1e-9 and can differ in
+    # the last digits.
+    computed = (UNDEFINED - nulls) | {"spread"}
 
     def stable(text: str) -> list[str]:
         return [line for line in text.splitlines() if line.strip().split('":')[0].strip('"') not in computed]

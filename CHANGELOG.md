@@ -9,6 +9,10 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 ### Added
 - Python 3.14 in the supported versions. CI now runs it, Node 26, and the cross-validation
   suite on Python 3.14 and macOS.
+- `verdict()` in both bindings, and so `compare` and `compare --json`, reports `spread`: the sd
+  of the per-item differences (paired) or the pooled std of both arms (Welch), the value
+  `power --sd-diff` or `--std` takes to size the next run. The text output prints it on a
+  `spread` line.
 
 ### Changed
 - The Python package requires Python 3.12 or later, and numpy 1.26 or later, the first
