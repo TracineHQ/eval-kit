@@ -35,7 +35,7 @@ instead of passing or failing it. Reproduce the table with `node js/examples/ver
 /plugin install eval-kit@tracine
 ```
 
-**CLI and JS library (Node 20+, no dependencies):** run in place from a clone.
+**CLI and JS library (Node 22+, no dependencies):** run in place from a clone.
 
 ```bash
 git clone https://github.com/TracineHQ/eval-kit && cd eval-kit
@@ -229,7 +229,7 @@ answer and rejects the wrong ones.
 SKILL.md                       Claude Code skill: the decision procedure
 .claude-plugin/plugin.json     Plugin manifest
 js/
-  lib/stats.mjs                JS binding (zero deps, Node 20+)
+  lib/stats.mjs                JS binding (zero deps, Node 22+)
   cli.mjs                      CLI: compare, power
   examples/verdicts.mjs        The README's three comparisons, reproducible
   test/stats.test.mjs          JS unit tests (node:test)
