@@ -23,7 +23,7 @@ reintroduce approximations to save lines.
     SKILL.md                     Claude Code skill (root SKILL.md loads as the plugin's skill)
     .claude-plugin/plugin.json   Plugin manifest
     js/
-      lib/stats.mjs              JS binding (Node 20+, zero deps)
+      lib/stats.mjs              JS binding (Node 22+, zero deps)
       cli.mjs                    CLI (compare, power); the skill runs this
       test/stats.test.mjs        JS unit tests (node:test)
     python/

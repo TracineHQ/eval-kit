@@ -17,7 +17,7 @@ node ${CLAUDE_PLUGIN_ROOT}/js/cli.mjs compare --baseline base.json --variant new
 node ${CLAUDE_PLUGIN_ROOT}/js/cli.mjs power --baseline pilot.json --target 3
 ```
 
-Needs Node 20+, no install. Add `--json` for machine-readable output. `--help` lists every flag.
+Needs Node 22+, no install. Add `--json` for machine-readable output. `--help` lists every flag.
 
 ## Step 1: Get the target before anything else
 
@@ -87,7 +87,7 @@ the report.
 
 - **Exit 2** prints the reason on stderr (bad JSON, fewer than 2 scores in an arm, item ids that
   don't match, a missing `--target`). Fix the input and rerun.
-- **No `node`** (Node 20+ required): say so and stop. Offer the Python binding as the alternative
+- **No `node`** (Node 22+ required): say so and stop. Offer the Python binding as the alternative
   (`pip install -e python/` from a clone, then `eval-kit` with the same flags). Do not estimate the
   numbers instead.
 - **More than two arms**: compare each variant with the baseline separately and apply the

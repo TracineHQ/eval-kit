@@ -6,7 +6,34 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- Python 3.14 in the supported versions. CI now runs it, Node 26, and the cross-validation
+  suite on Python 3.14 and macOS.
+
+### Changed
+- The Python package requires Python 3.12 or later, and numpy 1.26 or later, the first
+  numpy release with Python 3.12 wheels. Python 3.10 and 3.11 are no longer supported.
+- The CLI and JS library require Node 22 or later. Node 20 reached end of life on 2026-04-30.
+
 ### Fixed
+- The Python package allowed scipy 1.11 and 1.12, whose t quantile at small df differs from
+  scipy 1.13 and later, and from the JS binding, by more than the 1e-9 the bindings are held
+  to: 4e-8 at df 0.5, 4e-9 at df 1.5. The 95% CI bounds at small n carried the gap. It now
+  requires `scipy>=1.13`, and CI runs the unit and cross-validation suites at the lowest
+  allowed numpy and scipy.
+- A score file that repeats an item id kept only its last score, silently. Both CLIs now exit 2
+  and name the id: `<file> repeats item id "r1"; give each item one score (average repeated
+  calls first)`. Only the top-level object holds ids; a repeat nested deeper keeps the shape
+  error.
+- The Python CLI crashed with a traceback (exit 1, which `--gate` reads as regressed) when a
+  printed value reached 1e19. It now prints what the JS CLI prints, including exponent form
+  from 1e21.
+- An integer longer than 4300 digits got a different error from each CLI. Both now say the file
+  must be a JSON array of numbers or an object of `{"item id": number}`.
+- Error messages quote item ids and escape control characters, so an id cannot forge a line or
+  send a terminal escape: `missing from variant: "a", "b"; missing from baseline: "d"`.
+- The Python CLI writes UTF-8 with `\n` line ends whatever the stream encoding or platform, as
+  Node does.
 - The README said p-value parity has a 1e-15 absolute floor; no test used one. It now states
   the tolerances the suites hold.
 
