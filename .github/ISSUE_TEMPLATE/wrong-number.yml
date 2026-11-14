@@ -1,0 +1,50 @@
+name: Wrong number
+description: A function returns a statistic that disagrees with a reference implementation or a textbook.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The formulas are standard, and both bindings are held to scipy within
+        1e-9. If you believe one is wrong, CONTRIBUTING.md asks for an issue
+        with a citation before any code. This is that issue.
+  - type: input
+    id: function
+    attributes:
+      label: Function
+      description: e.g. `welchTTest` / `welch_t_test`, `requiredNPaired` / `required_n_paired`, `verdict`.
+    validations:
+      required: true
+  - type: textarea
+    id: inputs
+    attributes:
+      label: Inputs
+      description: The exact arguments, so the call can be rerun as is.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected value
+      description: The value the reference gives, and the value eval-kit gave.
+    validations:
+      required: true
+  - type: dropdown
+    id: reference
+    attributes:
+      label: Reference used
+      options:
+        - scipy
+        - statsmodels
+        - Textbook or paper
+        - Other (name it in the citation)
+    validations:
+      required: true
+  - type: textarea
+    id: citation
+    attributes:
+      label: Citation
+      description: The source for the expected value. For scipy or statsmodels, the function and version, and the call that produced it. For a textbook or paper, author, title, edition and page or equation.
+    validations:
+      required: true

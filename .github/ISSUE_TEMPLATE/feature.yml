@@ -1,0 +1,30 @@
+name: Feature request
+description: Propose a change to the skill, the CLI or the library.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Lead with the problem, not the solution. A new function lands in both
+        bindings at once, held to scipy within 1e-9, or not at all.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What were you trying to decide, and where did eval-kit fall short?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: How should eval-kit behave once this lands?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other approaches you considered, and why they fall short.
+    validations:
+      required: false

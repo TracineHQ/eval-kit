@@ -13,6 +13,11 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   of the per-item differences (paired) or the pooled std of both arms (Welch), the value
   `power --sd-diff` or `--std` takes to size the next run. The text output prints it on a
   `spread` line.
+- Issue and pull request templates, Dependabot for actions and the Python lock file, and CITATION.cff.
+- A per-repo marketplace manifest (`tracinehq`), with a CI job that installs the plugin from it on Linux
+  and macOS, and a standalone install line in the README.
+- The version check also covers python/uv.lock, the changelog compare link, CITATION.cff and the
+  marketplace manifest.
 
 ### Changed
 - The Python package requires Python 3.12 or later, and numpy 1.26 or later, the first
