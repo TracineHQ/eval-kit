@@ -35,7 +35,7 @@ instead of passing or failing it. Reproduce the table with `node js/examples/ver
 /plugin install eval-kit@tracine
 ```
 
-**CLI and JS library (Node 20+, no dependencies):** run in place from a clone.
+**CLI and JS library (Node 22+, no dependencies):** run in place from a clone.
 
 ```bash
 git clone https://github.com/TracineHQ/eval-kit && cd eval-kit
@@ -186,7 +186,8 @@ Return field names follow the same convention.
 `approxPValue` / `approx_p_value` remain as aliases of `pValue` / `p_value` from
 0.0.x, when the JS side approximated. Cross-validation holds every numeric output in both
 implementations to scipy within 1e-9, including fractional Welch df. P-values are held
-to 1e-9 relative (with a 1e-15 absolute floor), so small tail p-values keep their digits.
+to 1e-9 relative with no absolute floor through df 1e7, so small tail p-values keep their
+digits, and to 1e-9 absolute at larger df.
 
 ## Notable design choices
 
@@ -232,7 +233,7 @@ answer and rejects the wrong ones.
 SKILL.md                       Claude Code skill: the decision procedure
 .claude-plugin/plugin.json     Plugin manifest
 js/
-  lib/stats.mjs                JS binding (zero deps, Node 20+)
+  lib/stats.mjs                JS binding (zero deps, Node 22+)
   cli.mjs                      CLI: compare, power
   examples/verdicts.mjs        The README's three comparisons, reproducible
   test/stats.test.mjs          JS unit tests (node:test)

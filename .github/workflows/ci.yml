@@ -6,16 +6,25 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   js:
     name: JS tests (Node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node: ['20', '22', '24']
+        node: ['22', '24', '26']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: ${{ matrix.node }}
       - run: node --test js/test/stats.test.mjs
@@ -25,10 +34,12 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python: ['3.10', '3.11', '3.12', '3.13']
+        python: ['3.12', '3.13', '3.14']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -40,12 +51,49 @@ jobs:
         working-directory: python
         run: pytest
 
+  min-deps:
+    name: Dependency floor (Python 3.12, lowest direct dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39  # v8.2.0
+      - name: Create venv
+        working-directory: python
+        run: uv venv .venv --python 3.12
+      - name: Install package at the lowest allowed versions
+        working-directory: python
+        run: uv pip install --python .venv/bin/python --resolution lowest-direct -e ".[dev]"
+      # The floor in pyproject.toml is only a promise if something installs it.
+      - name: Check numpy and scipy sit at their floors
+        working-directory: python
+        shell: bash
+        run: |
+          uv pip list --python .venv/bin/python
+          uv pip list --python .venv/bin/python | grep -Eq '^numpy +1\.26\.0( |$)' || { echo "::error::numpy is not at its floor, 1.26.0"; exit 1; }
+          uv pip list --python .venv/bin/python | grep -Eq '^scipy +1\.13\.0( |$)' || { echo "::error::scipy is not at its floor, 1.13.0"; exit 1; }
+      - name: Run tests
+        working-directory: python
+        run: .venv/bin/pytest
+      - name: Run cross-validation
+        working-directory: python
+        run: .venv/bin/pytest ../tests/cross-validation/ -v
+
   lint:
     name: Lint and typecheck (ruff, mypy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: '3.12'
           cache: pip
@@ -66,18 +114,28 @@ jobs:
         run: for f in js/cli.mjs js/lib/stats.mjs js/examples/*.mjs js/test/*.mjs tests/cross-validation/bridge.mjs; do node --check "$f"; done
 
   cross-validation:
-    name: Cross-validation (Node ${{ matrix.node }} + Python ${{ matrix.python }})
-    runs-on: ubuntu-latest
+    name: Cross-validation (${{ matrix.os }}, Node ${{ matrix.node }} + Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node: ['20', '22', '24']
+        os: [ubuntu-latest]
+        node: ['22', '24', '26']
         python: ['3.12']
+        include:
+          - os: ubuntu-latest
+            node: '24'
+            python: '3.14'
+          - os: macos-latest
+            node: '24'
+            python: '3.12'
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
         with:
           node-version: ${{ matrix.node }}
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -93,11 +151,13 @@ jobs:
     name: Skill contract (deterministic, no model calls)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          node-version: '20'
-      - uses: actions/setup-python@v5
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
         with:
           python-version: '3.12'
           cache: pip
