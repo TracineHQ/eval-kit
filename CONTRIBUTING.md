@@ -43,7 +43,7 @@ A run makes real model calls. Add `--runs 1 --ablation none` while iterating.
 
 **JavaScript:**
 
-Requires Node.js 20+. No install step -- the binding uses only Node built-ins.
+Requires Node.js 22+. No install step -- the binding uses only Node built-ins.
 
 ```bash
 node --test js/test/stats.test.mjs
@@ -51,7 +51,7 @@ node --test js/test/stats.test.mjs
 
 **Python:**
 
-Requires Python 3.10+.
+Requires Python 3.12+.
 
 ```bash
 cd python
