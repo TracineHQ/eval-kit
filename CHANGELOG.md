@@ -34,6 +34,8 @@ This project adheres to [Semantic Versioning](https://semver.org/).
   send a terminal escape: `missing from variant: "a", "b"; missing from baseline: "d"`.
 - The Python CLI writes UTF-8 with `\n` line ends whatever the stream encoding or platform, as
   Node does.
+- The README said p-value parity has a 1e-15 absolute floor; no test used one. It now states
+  the tolerances the suites hold.
 
 ## [0.2.0] - 2026-10-15
 

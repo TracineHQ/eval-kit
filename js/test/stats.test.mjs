@@ -118,6 +118,23 @@ test('welchTTest() returns near-zero t when groups have identical distribution',
   assert.equal(result.t, 0);
 });
 
+test('welchTTest() with two constant arms and different means', () => {
+  const r = welchTTest([50, 50, 50], [60, 60, 60]);
+  // t is Infinity whatever the sign of diff (-10 here); se === 0 is the check.
+  assert.equal(r.t, Infinity);
+  assert.equal(r.df, 4);
+  assert.equal(r.se, 0);
+  assert.equal(r.glassD, 99);
+});
+
+test('welchTTest() pins t, df and p at unequal variances', () => {
+  // scipy.stats.ttest_ind([80,81,82,83,84], [70,60,80,50,90], equal_var=False)
+  const r = welchTTest([80, 81, 82, 83, 84], [70, 60, 80, 50, 90]);
+  assert.ok(Math.abs(r.t - 1.6886341073527005) < 1e-12);
+  assert.ok(Math.abs(r.df - 4.07999200079992) < 1e-12);
+  assert.ok(Math.abs(r.p - 0.16515649717911493) < 1e-12);
+});
+
 // ---------------------------------------------------------------------------
 // requiredN()
 // ---------------------------------------------------------------------------
@@ -153,6 +170,28 @@ test('requiredN() scales inversely with effect size', () => {
 
 test('requiredN() returns Infinity for zero delta', () => {
   assert.equal(requiredN(8, 0), Infinity);
+});
+
+test('requiredN() at std 1 sits on the exact Welch boundary for mid-size d', () => {
+  // requiredN's power at these n clears 0.80 by under 0.004, so a df off by
+  // one (2n - 3 for 2n - 2) moves the answer up by one. Paired counts ride along.
+  for (const [d, welch, paired] of [[1.06, 15, 10], [1.41, 9, 7], [1.64, 7, 6], [1.8, 6, 5]]) {
+    assert.equal(requiredN(1, d), welch, `d=${d}`);
+    assert.equal(requiredNPaired(1, d), paired, `d=${d}`);
+  }
+});
+
+test('requiredN() takes the bisection branch at large n', () => {
+  // scipy power is 0.80000002 at 826596 and 0.79999954 at 826595. Only an n
+  // this large sends the search through the bisection step that raises lo.
+  assert.equal(requiredN(6.491892124788057, 0.028290668449373238), 826596);
+});
+
+test('requiredN() returns the z value past the exact limit', () => {
+  // Past EXACT_N_LIMIT (1e8) the z guess comes back unsearched. Just past the
+  // limit, a search would still move it, so a higher limit fails the second pin.
+  assert.equal(requiredN(2.1, 1e-5), 692271192570);
+  assert.equal(requiredN(1, 3.2e-4), 153298433);
 });
 
 // ---------------------------------------------------------------------------
@@ -236,6 +275,12 @@ test('pValue() uses the t-distribution, not the normal, at df=30', () => {
 test('pValue() handles t=0 and t=Infinity', () => {
   assert.equal(pValue(0, 10), 1);
   assert.equal(pValue(Infinity, 10), 0);
+});
+
+test('pValue() and tCritical() at infinite df', () => {
+  // The normal limit: 2 * scipy.stats.norm.sf(1) and scipy.stats.norm.ppf(0.975).
+  assert.ok(Math.abs(pValue(1, Infinity) - 0.31731050786291415) < 1e-12);
+  assert.ok(Math.abs(tCritical(Infinity) - 1.959963984540054) < 1e-12);
 });
 
 test('approxPValue() is an alias of pValue()', () => {
@@ -375,6 +420,21 @@ test('verdict() returns null for invalid input', () => {
   assert.equal(verdict([1, 2, 3], [4, 5, 6], { target: NaN }), null);
   // JS-only: Python's target is a required positional argument, so it cannot be omitted.
   assert.equal(verdict([1, 2, 3], [4, 5, 6]), null);
+});
+
+test('verdict() calls a paired improvement significant', () => {
+  const v = verdict([40, 55, 62, 70, 78, 85, 91, 48, 66, 73], [42, 57, 63, 72, 80, 88, 92, 50, 69, 75], {
+    target: 1,
+    paired: true,
+  });
+  assert.deepEqual([v.verdict, v.reason, v.needed], ['improved', 'significant', 10]);
+  assert.ok(Math.abs(v.effect - 3) < 1e-12);
+});
+
+test('verdict() counts the paired items needed at df n - 1', () => {
+  // At df n the search would stop one item early, at 5.
+  const v = verdict([40, 55, 62, 70, 78], [41, 58, 64, 74, 80], { target: 2.75, paired: true });
+  assert.equal(v.needed, 6);
 });
 
 // ---------------------------------------------------------------------------

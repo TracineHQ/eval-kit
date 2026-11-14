@@ -183,7 +183,8 @@ Return field names follow the same convention.
 `approxPValue` / `approx_p_value` remain as aliases of `pValue` / `p_value` from
 0.0.x, when the JS side approximated. Cross-validation holds every numeric output in both
 implementations to scipy within 1e-9, including fractional Welch df. P-values are held
-to 1e-9 relative (with a 1e-15 absolute floor), so small tail p-values keep their digits.
+to 1e-9 relative with no absolute floor through df 1e7, so small tail p-values keep their
+digits, and to 1e-9 absolute at larger df.
 
 ## Notable design choices
 
