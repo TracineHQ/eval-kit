@@ -16,6 +16,9 @@ on:
         description: Hard cost ceiling for the whole run
         default: '5'
 
+permissions:
+  contents: read
+
 jobs:
   evals:
     name: claude plugin eval
@@ -30,10 +33,12 @@ jobs:
             echo "::error::Set the ANTHROPIC_API_KEY repository secret to run live evals."
             exit 1
           fi
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          node-version: '20'
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
+        with:
+          node-version: '24'
       # Pinned to match ci.yml; bump both together.
       - name: Install Claude Code
         run: npm install -g @anthropic-ai/claude-code@2.1.285
@@ -55,7 +60,7 @@ jobs:
           --report evals/results/report.html
       - name: Upload results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: skill-eval-results
           path: evals/results/

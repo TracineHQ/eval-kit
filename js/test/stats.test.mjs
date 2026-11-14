@@ -118,6 +118,23 @@ test('welchTTest() returns near-zero t when groups have identical distribution',
   assert.equal(result.t, 0);
 });
 
+test('welchTTest() with two constant arms and different means', () => {
+  const r = welchTTest([50, 50, 50], [60, 60, 60]);
+  // t is Infinity whatever the sign of diff (-10 here); se === 0 is the check.
+  assert.equal(r.t, Infinity);
+  assert.equal(r.df, 4);
+  assert.equal(r.se, 0);
+  assert.equal(r.glassD, 99);
+});
+
+test('welchTTest() pins t, df and p at unequal variances', () => {
+  // scipy.stats.ttest_ind([80,81,82,83,84], [70,60,80,50,90], equal_var=False)
+  const r = welchTTest([80, 81, 82, 83, 84], [70, 60, 80, 50, 90]);
+  assert.ok(Math.abs(r.t - 1.6886341073527005) < 1e-12);
+  assert.ok(Math.abs(r.df - 4.07999200079992) < 1e-12);
+  assert.ok(Math.abs(r.p - 0.16515649717911493) < 1e-12);
+});
+
 // ---------------------------------------------------------------------------
 // requiredN()
 // ---------------------------------------------------------------------------
@@ -153,6 +170,28 @@ test('requiredN() scales inversely with effect size', () => {
 
 test('requiredN() returns Infinity for zero delta', () => {
   assert.equal(requiredN(8, 0), Infinity);
+});
+
+test('requiredN() at std 1 sits on the exact Welch boundary for mid-size d', () => {
+  // requiredN's power at these n clears 0.80 by under 0.004, so a df off by
+  // one (2n - 3 for 2n - 2) moves the answer up by one. Paired counts ride along.
+  for (const [d, welch, paired] of [[1.06, 15, 10], [1.41, 9, 7], [1.64, 7, 6], [1.8, 6, 5]]) {
+    assert.equal(requiredN(1, d), welch, `d=${d}`);
+    assert.equal(requiredNPaired(1, d), paired, `d=${d}`);
+  }
+});
+
+test('requiredN() takes the bisection branch at large n', () => {
+  // scipy power is 0.80000002 at 826596 and 0.79999954 at 826595. Only an n
+  // this large sends the search through the bisection step that raises lo.
+  assert.equal(requiredN(6.491892124788057, 0.028290668449373238), 826596);
+});
+
+test('requiredN() returns the z value past the exact limit', () => {
+  // Past EXACT_N_LIMIT (1e8) the z guess comes back unsearched. Just past the
+  // limit, a search would still move it, so a higher limit fails the second pin.
+  assert.equal(requiredN(2.1, 1e-5), 692271192570);
+  assert.equal(requiredN(1, 3.2e-4), 153298433);
 });
 
 // ---------------------------------------------------------------------------
@@ -236,6 +275,12 @@ test('pValue() uses the t-distribution, not the normal, at df=30', () => {
 test('pValue() handles t=0 and t=Infinity', () => {
   assert.equal(pValue(0, 10), 1);
   assert.equal(pValue(Infinity, 10), 0);
+});
+
+test('pValue() and tCritical() at infinite df', () => {
+  // The normal limit: 2 * scipy.stats.norm.sf(1) and scipy.stats.norm.ppf(0.975).
+  assert.ok(Math.abs(pValue(1, Infinity) - 0.31731050786291415) < 1e-12);
+  assert.ok(Math.abs(tCritical(Infinity) - 1.959963984540054) < 1e-12);
 });
 
 test('approxPValue() is an alias of pValue()', () => {
@@ -368,6 +413,22 @@ test('verdict() reports shift as variant minus baseline', () => {
   assert.ok(v.ciLo < v.shift && v.shift < v.ciHi);
 });
 
+test('verdict() reports the spread it sized from', () => {
+  // power --sd-diff or --std takes it to size the next run.
+  const a = [40, 55, 62, 70, 78, 85, 91, 48, 66, 73];
+  const b = [42, 57, 63, 72, 80, 88, 92, 50, 69, 75];
+  const paired = verdict(a, b, { target: 1, paired: true });
+  assert.equal(paired.spread, pairedTTest(a, b).sdDiff);
+  assert.deepEqual(Object.keys(paired).slice(-3), ['needed', 'spread', 'constantArm']);
+  // Welch: the pooled std of both arms, which power sizes a two-array pilot from.
+  const vari = [83.9, 81.2, 86.0, 84.7];
+  const pooled = Math.sqrt((stats(BASE.slice(0, 4)).std ** 2 + stats(vari).std ** 2) / 2);
+  assert.ok(Math.abs(verdict(BASE.slice(0, 4), vari, { target: 3 }).spread - pooled) < 1e-12);
+  // No spread is measured, not undefined: 0, not null.
+  assert.equal(verdict([80, 80, 80], [85, 85, 85], { target: 3 }).spread, 0);
+  assert.equal(verdict([0.85, 0.65, 0.95, 0.75, 0.55], [0.8, 0.6, 0.9, 0.7, 0.5], { target: 0.1, paired: true }).spread, 0);
+});
+
 test('verdict() returns null for invalid input', () => {
   assert.equal(verdict([1], [1, 2], { target: 1 }), null);
   assert.equal(verdict([1, 2, 3], [1, 2], { target: 1, paired: true }), null);
@@ -375,6 +436,21 @@ test('verdict() returns null for invalid input', () => {
   assert.equal(verdict([1, 2, 3], [4, 5, 6], { target: NaN }), null);
   // JS-only: Python's target is a required positional argument, so it cannot be omitted.
   assert.equal(verdict([1, 2, 3], [4, 5, 6]), null);
+});
+
+test('verdict() calls a paired improvement significant', () => {
+  const v = verdict([40, 55, 62, 70, 78, 85, 91, 48, 66, 73], [42, 57, 63, 72, 80, 88, 92, 50, 69, 75], {
+    target: 1,
+    paired: true,
+  });
+  assert.deepEqual([v.verdict, v.reason, v.needed], ['improved', 'significant', 10]);
+  assert.ok(Math.abs(v.effect - 3) < 1e-12);
+});
+
+test('verdict() counts the paired items needed at df n - 1', () => {
+  // At df n the search would stop one item early, at 5.
+  const v = verdict([40, 55, 62, 70, 78], [41, 58, 64, 74, 80], { target: 2.75, paired: true });
+  assert.equal(v.needed, 6);
 });
 
 // ---------------------------------------------------------------------------
@@ -514,6 +590,14 @@ test('cli compare prints the CI, p and effect as undefined when neither arm has 
   assert.ok([oneJson.ciLo, oneJson.ciHi, oneJson.p].every(Number.isFinite));
 });
 
+test('cli compare prints the spread line', () => {
+  const welch = cli('compare', '--baseline', scoreFile(PILOT_BASE), '--variant', scoreFile(PILOT_VARI), '--target', '3');
+  assert.equal(welch.out.split('\n')[6], '  spread    2.05 (pooled std)');
+  const paired = cli('compare', '--baseline', scoreFile({ a: 40, b: 55, c: 62 }),
+    '--variant', scoreFile({ a: 42, b: 56, c: 65 }), '--target', '1');
+  assert.equal(paired.out.split('\n')[6], '  spread    1.00 (sd of differences)');
+});
+
 test('cli --gate holds on a constant arm unless the verdict is regressed', () => {
   // Regression: 0.1.x exited 0 on an improved verdict over a constant baseline,
   // while the text said to check the harness before trusting it.
@@ -538,4 +622,29 @@ test('cli --gate holds on a constant arm unless the verdict is regressed', () =>
     assert.equal(plain.code, 0, label);
     assert.equal(plain.out, gated.out, label);
   }
+});
+
+test('cli refuses a repeated item id', () => {
+  // Regression: 0.2.0 kept the last score for a repeated id, so this baseline
+  // compared as n=3, mean 2.20, and 3 of its 6 scores vanished. JSON.stringify
+  // cannot write a repeated key, so the files are raw text.
+  const raw = (text) => {
+    const path = join(TMP, `scores-${fileCount++}.json`);
+    writeFileSync(path, text);
+    return path;
+  };
+  const base = raw('{"r1":1.9,"r1":2.4,"r1":2.1,"r2":3.0,"r2":3.3,"r3":1.2}');
+  const vari = raw('{"r1":1.6,"r2":2.9,"r3":1.0}');
+  const hint = 'give each item one score (average repeated calls first)';
+  const r = cli('compare', '--baseline', base, '--variant', vari, '--target', '1', '--lower-is-better');
+  assert.deepEqual(r, { code: 2, out: '', err: `eval-kit: ${base} repeats item id "r1"; ${hint}\n` });
+  // The first id whose second occurrence comes first, decoded and quoted.
+  const order = raw('{"a\\n": 1, "b": 2, "b": 3, "a\\u000a": 4}');
+  assert.equal(cli('power', '--baseline', order, '--target', '1').err, `eval-kit: ${order} repeats item id "b"; ${hint}\n`);
+  // Only the top-level object holds item ids; a nested repeat is the wrong shape.
+  const nested = raw('{"a": {"x": 1, "x": 2}, "b": 1}');
+  assert.equal(
+    cli('compare', '--baseline', nested, '--variant', vari, '--target', '1').err,
+    `eval-kit: ${nested} must be a JSON array of numbers or an object of {"item id": number}\n`,
+  );
 });

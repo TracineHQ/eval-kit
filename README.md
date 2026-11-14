@@ -37,7 +37,7 @@ instead of passing or failing it. Reproduce the table with `node js/examples/ver
 
 Standalone, as a backup: `/plugin marketplace add TracineHQ/eval-kit`, then `/plugin install eval-kit@tracinehq`.
 
-**CLI and JS library (Node 20+, no dependencies):** run in place from a clone.
+**CLI and JS library (Node 22+, no dependencies):** run in place from a clone.
 
 ```bash
 git clone https://github.com/TracineHQ/eval-kit && cd eval-kit
@@ -115,6 +115,7 @@ eval-kit compare: Welch's t-test, independent runs
   shift     +2.70  95% CI [-0.84, +6.24]
   p         0.111
   glassD    1.31
+  spread    2.05 (pooled std)
   target    3 (higher is better)
 
 CAN'T TELL YET. The 95% CI includes both no change and a 3-point shift.
@@ -152,7 +153,9 @@ Resolving it takes 16 runs per arm at the spread seen so far; you have 4.
 - **"Resolving it takes N"** in a `cant_tell` is a different, larger n: at the spread seen so
   far, the 95% CI at N is under half the target on each side, so it cannot span both no change
   and the target. Every verdict at N is a call.
-- **`--json`** prints the `verdict()` result. **`--gate`** turns it into an exit code for CI:
+- **`--json`** prints the `verdict()` result. `spread` is the sd of differences (paired) or the
+  pooled std of both arms (Welch): pass it to `power --sd-diff` or `--std` to size the next run.
+  **`--gate`** turns it into an exit code for CI:
 
 | Exit | Meaning |
 |---|---|
@@ -173,7 +176,7 @@ Return field names follow the same convention.
 
 | Purpose | JS | Python | Returns |
 |---|---|---|---|
-| The decision: improved / regressed / no_change / cant_tell | `verdict(a, b, {target, paired, lowerIsBetter})` | `verdict(a, b, target, paired, lower_is_better)` | `{verdict, reason, shift, ciLo, ciHi, p, effect, needed, ...}` |
+| The decision: improved / regressed / no_change / cant_tell | `verdict(a, b, {target, paired, lowerIsBetter})` | `verdict(a, b, target, paired, lower_is_better)` | `{verdict, reason, shift, ciLo, ciHi, p, effect, spread, needed, ...}` |
 | Descriptive stats + 95% CI | `stats(arr)` | `descriptive_stats(arr)` | `{n, mean, std, cv, min, max, range, se, ciLo, ciHi, ciMargin}` |
 | Welch's t-test + Glass's delta (`diff` = a minus b) | `welchTTest(a, b)` | `welch_t_test(a, b)` | `{t, df, p, diff, se, glassD, baselineStd}` |
 | Paired t-test + Cohen's dz (`diff` = a minus b) | `pairedTTest(a, b)` | `paired_t_test(a, b)` | `{t, df, p, diff, se, dz, sdDiff, n}` |
@@ -185,7 +188,8 @@ Return field names follow the same convention.
 `approxPValue` / `approx_p_value` remain as aliases of `pValue` / `p_value` from
 0.0.x, when the JS side approximated. Cross-validation holds every numeric output in both
 implementations to scipy within 1e-9, including fractional Welch df. P-values are held
-to 1e-9 relative (with a 1e-15 absolute floor), so small tail p-values keep their digits.
+to 1e-9 relative with no absolute floor through df 1e7, so small tail p-values keep their
+digits, and to 1e-9 absolute at larger df.
 
 ## Notable design choices
 
@@ -231,7 +235,7 @@ answer and rejects the wrong ones.
 SKILL.md                       Claude Code skill: the decision procedure
 .claude-plugin/plugin.json     Plugin manifest
 js/
-  lib/stats.mjs                JS binding (zero deps, Node 20+)
+  lib/stats.mjs                JS binding (zero deps, Node 22+)
   cli.mjs                      CLI: compare, power
   examples/verdicts.mjs        The README's three comparisons, reproducible
   test/stats.test.mjs          JS unit tests (node:test)

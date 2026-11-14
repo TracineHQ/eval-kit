@@ -540,6 +540,12 @@ function resolvingN(se1, dfOf, target) {
  * the spread to size at all. For planning a run before collecting data, use
  * requiredN (80% power to detect a target-sized shift), which is smaller.
  *
+ * spread is the spread the comparison sized from: the sd of the per-item
+ * differences (paired) or the pooled std of both arms,
+ * sqrt((sdA^2 + sdB^2) / 2) (Welch). Pass it to power --sd-diff or --std to
+ * size the next run. It is 0, not null, with no spread: zero spread is
+ * measured, not undefined.
+ *
  * What the data cannot define is null, not a placeholder. effect is null
  * with no spread to scale it by: reason zero_spread (either design), or a
  * constant baseline under Glass's delta. A constant variant leaves the
@@ -554,7 +560,7 @@ function resolvingN(se1, dfOf, target) {
  * @param {number[]} variant
  * @param {{ target: number, paired?: boolean, lowerIsBetter?: boolean }} options
  * @returns {{ verdict, reason, design, target, lowerIsBetter, shift, ciLo, ciHi,
- *   p, effect, effectName, nBaseline, nVariant, needed, constantArm } | null}
+ *   p, effect, effectName, nBaseline, nVariant, needed, spread, constantArm } | null}
  */
 export function verdict(baseline, variant, { target, paired = false, lowerIsBetter = false } = {}) {
   if (!(target > 0) || !Number.isFinite(target)) return null;
@@ -619,6 +625,7 @@ export function verdict(baseline, variant, { target, paired = false, lowerIsBett
     nBaseline: baseline.length,
     nVariant: variant.length,
     needed,
+    spread: paired ? r.sdDiff : Math.hypot(r.baselineStd, variantStd) / Math.SQRT2,
     constantArm,
   };
 }
