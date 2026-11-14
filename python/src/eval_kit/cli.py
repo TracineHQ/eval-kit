@@ -14,7 +14,7 @@ import sys
 import warnings
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Decimal, localcontext
 from math import isfinite, sqrt
 from pathlib import Path
 from typing import Any, NoReturn
@@ -99,10 +99,37 @@ MAX_DEPTH = 64
 
 
 def _say(text: str, stream: Any = None) -> None:
-    """print(), but lone surrogates (from JSON like "\\ud800") come out as
-    U+FFFD, as Node writes them, instead of raising or escaping."""
+    """Write text and a newline as UTF-8 with a \\n line end, as Node does,
+    whatever the stream encoding or platform. Lone surrogates (from JSON like
+    "\\ud800") come out as U+FFFD, as Node writes them, instead of raising or
+    escaping."""
+    out = stream or sys.stdout
     clean = text.encode("utf-16", "surrogatepass").decode("utf-16", "replace")
-    print(clean, file=stream or sys.stdout)
+    buffer = getattr(out, "buffer", None)
+    if buffer is None:
+        print(clean, file=out)
+        return
+    out.flush()
+    buffer.write((clean + "\n").encode("utf-8"))
+    buffer.flush()
+
+
+def _quote_id(item_id: str) -> str:
+    """An id as messages print it: quoted, with backslash, quote and C0/C1
+    control characters escaped, so an id cannot forge a line or reach the
+    terminal as an escape sequence. Same rule as the JS CLI's quoteId."""
+    out = []
+    for ch in item_id:
+        code = ord(ch)
+        if ch == "\\":
+            out.append("\\\\")
+        elif ch == '"':
+            out.append('\\"')
+        elif code <= 0x1F or 0x7F <= code <= 0x9F:
+            out.append(f"\\u{code:04x}")
+        else:
+            out.append(ch)
+    return '"' + "".join(out) + '"'
 
 
 def _check_depth(text: str, name: str) -> None:
@@ -139,6 +166,22 @@ def _js_key_order(data: dict[str, Any]) -> dict[str, Any]:
     return {**{k: data[k] for k in indexed}, **{k: v for k, v in data.items() if not is_index(k)}}
 
 
+class _JsonObject(dict[str, Any]):
+    """A parsed JSON object that remembers its first repeated key. json.loads
+    keeps only the last value of a repeated key, so _read_scores checks it."""
+
+    repeated: str | None = None
+
+
+def _json_object(pairs: list[tuple[str, Any]]) -> _JsonObject:
+    obj = _JsonObject()
+    for key, value in pairs:
+        if obj.repeated is None and key in obj:
+            obj.repeated = key  # the first key whose second occurrence comes first
+        obj[key] = value
+    return obj
+
+
 def _reject_constant(name: str) -> NoReturn:
     # NaN and Infinity are not JSON; json.loads accepts them by default.
     raise ValueError(name)
@@ -165,9 +208,15 @@ def _read_scores(path: str) -> dict[str, Any]:
     text = raw.decode("utf-8", errors="replace")
     _check_depth(text, name)
     try:
-        data = json.loads(text, parse_constant=_reject_constant)
+        # Integers parse as floats, as JS reads them: one too long for a float
+        # is inf and gets the shape error below, not CPython's int-digit limit.
+        data = json.loads(text, parse_constant=_reject_constant, parse_int=float, object_pairs_hook=_json_object)
     except ValueError:
         raise UsageError(f"{name} is not valid JSON") from None
+    # Only the top-level object holds item ids; a nested one fails the shape check.
+    if isinstance(data, _JsonObject) and data.repeated is not None:
+        repeated = _quote_id(data.repeated)
+        raise UsageError(f"{name} repeats item id {repeated}; give each item one score (average repeated calls first)")
     if isinstance(data, dict):
         data = _js_key_order(data)
     raw_values = list(data.values()) if isinstance(data, dict) else data
@@ -193,7 +242,7 @@ def _align(base: dict[str, Any], vari: dict[str, Any], paired_flag: bool) -> tup
         if missing or extra:
 
             def show(ids: list[str]) -> str:
-                return ", ".join(ids[:5]) + (", ..." if len(ids) > 5 else "")
+                return ", ".join(_quote_id(i) for i in ids[:5]) + (", ..." if len(ids) > 5 else "")
 
             parts = []
             if missing:
@@ -237,8 +286,15 @@ def _parse_non_negative(raw: str, name: str) -> float:
 
 
 def _to_fixed(x: float, digits: int) -> str:
-    """Number.prototype.toFixed: exact binary value, ties away from zero."""
-    q = Decimal(x).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
+    """Number.prototype.toFixed: exact binary value, ties away from zero, and
+    from 1e21 the exponent form Number#toString prints. Below 1e21 a double
+    has at most 21 integer digits; 400 digits of precision quantizes any of
+    them without raising."""
+    if abs(x) >= 1e21:
+        return _num(x)
+    with localcontext() as ctx:
+        ctx.prec = 400
+        q = Decimal(x).quantize(Decimal(1).scaleb(-digits), rounding=ROUND_HALF_UP)
     return f"{q:f}"
 
 

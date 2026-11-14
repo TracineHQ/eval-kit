@@ -539,3 +539,28 @@ test('cli --gate holds on a constant arm unless the verdict is regressed', () =>
     assert.equal(plain.out, gated.out, label);
   }
 });
+
+test('cli refuses a repeated item id', () => {
+  // Regression: 0.2.0 kept the last score for a repeated id, so this baseline
+  // compared as n=3, mean 2.20, and 3 of its 6 scores vanished. JSON.stringify
+  // cannot write a repeated key, so the files are raw text.
+  const raw = (text) => {
+    const path = join(TMP, `scores-${fileCount++}.json`);
+    writeFileSync(path, text);
+    return path;
+  };
+  const base = raw('{"r1":1.9,"r1":2.4,"r1":2.1,"r2":3.0,"r2":3.3,"r3":1.2}');
+  const vari = raw('{"r1":1.6,"r2":2.9,"r3":1.0}');
+  const hint = 'give each item one score (average repeated calls first)';
+  const r = cli('compare', '--baseline', base, '--variant', vari, '--target', '1', '--lower-is-better');
+  assert.deepEqual(r, { code: 2, out: '', err: `eval-kit: ${base} repeats item id "r1"; ${hint}\n` });
+  // The first id whose second occurrence comes first, decoded and quoted.
+  const order = raw('{"a\\n": 1, "b": 2, "b": 3, "a\\u000a": 4}');
+  assert.equal(cli('power', '--baseline', order, '--target', '1').err, `eval-kit: ${order} repeats item id "b"; ${hint}\n`);
+  // Only the top-level object holds item ids; a nested repeat is the wrong shape.
+  const nested = raw('{"a": {"x": 1, "x": 2}, "b": 1}');
+  assert.equal(
+    cli('compare', '--baseline', nested, '--variant', vari, '--target', '1').err,
+    `eval-kit: ${nested} must be a JSON array of numbers or an object of {"item id": number}\n`,
+  );
+});
